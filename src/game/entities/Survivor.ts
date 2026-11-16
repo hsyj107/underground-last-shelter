@@ -53,6 +53,11 @@ export class Survivor extends Phaser.GameObjects.Image {
     this.timer = duration;
   }
 
+  /** 아직 동료가 아닌 생존자: 제자리에서 기다린다. (만나서 대화가 끝나면 endTalk 으로 일을 시작) */
+  wait(): void {
+    this.talkTo(this.x + 1, Number.POSITIVE_INFINITY);
+  }
+
   /** 대화를 끝내고 하던 일로 돌아간다. */
   endTalk(): void {
     if (this.mode === 'talk') this.startIdle();

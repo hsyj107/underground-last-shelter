@@ -91,7 +91,7 @@ export class FacilityPanel extends Phaser.GameObjects.Container {
     this.consume.setText(info.consume);
     this.workers.setText(
       workers.length > 0
-        ? workers.map((w) => `${w.name} (${JOBS[w.job].label})`).join(', ')
+        ? workers.map((w) => `${w.name} (${JOBS[w.job].label}) · ${w.trait}`).join('\n')
         : '배치된 생존자 없음',
     );
     this.workers.setColor(workers.length > 0 ? TEXT_COLORS.main : TEXT_COLORS.sub);

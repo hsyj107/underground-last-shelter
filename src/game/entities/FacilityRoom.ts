@@ -4,6 +4,8 @@ import { SHAFT_X, type RoomRect } from '../config/bunkerLayout';
 import { roomTextureKey } from '../art/registerArt';
 import { createText } from '../../ui/styles/theme';
 
+export type RoomState = 'active' | 'frontier' | 'locked';
+
 const SELECT_COLOR = 0xf2a93b;
 /** 연출 효과(경고등 등) 스프라이트 배율 */
 const FX_SCALE = 2;
@@ -19,7 +21,11 @@ export class FacilityRoom {
   private borderTween: Phaser.Tweens.Tween | null = null;
   private readonly glows: Phaser.GameObjects.Image[] = [];
   private readonly dim: Phaser.GameObjects.Rectangle;
-  private readonly offSign: (Phaser.GameObjects.Graphics | Phaser.GameObjects.Text)[];
+  private readonly signPlate: Phaser.GameObjects.Graphics;
+  private readonly signText: Phaser.GameObjects.Text;
+  /** 가동 중일 때만 보이는 연출(경고등·물방울·불꽃) */
+  private readonly fxObjects: (Phaser.GameObjects.Sprite | Phaser.GameObjects.Image)[] = [];
+  private fxActive = true;
 
   constructor(scene: Phaser.Scene, rect: RoomRect, layer: Phaser.GameObjects.Container) {
     this.scene = scene;
@@ -69,25 +75,34 @@ export class FacilityRoom {
     label.setPosition(x + 21, y + 38);
     layer.add([plate, label]);
 
-    // "운영 중지" 표지 (이름표 옆)
-    const off = createText(scene, 0, 0, '운영 중지 · 인원 없음', { size: 11, bold: true, color: '#ff8a7a' });
-    const offW = Math.ceil(off.width) + 12;
-    const offPlate = scene.add.graphics();
-    offPlate.fillStyle(0x2a0f0d, 0.92).fillRect(0, 0, offW, 18);
-    offPlate.lineStyle(1, 0xb0463a, 1).strokeRect(0.5, 0.5, offW - 1, 17);
-    offPlate.setPosition(x + 14 + plateW + 6, y + 36);
-    off.setPosition(x + 14 + plateW + 12, y + 39);
-    offPlate.setVisible(false);
-    off.setVisible(false);
-    this.offSign = [offPlate, off];
-    layer.add(this.offSign);
+    // 상태 표지 (이름표 옆): "미확보" 등
+    this.signPlate = scene.add.graphics().setPosition(x + 14 + plateW + 6, y + 36).setVisible(false);
+    this.signText = createText(scene, x + 14 + plateW + 12, y + 39, '', { size: 11, bold: true, color: '#ff8a7a' });
+    this.signText.setVisible(false);
+    layer.add([this.signPlate, this.signText]);
   }
 
-  /** 배치된 인원이 있어야 시설이 가동된다. 없으면 불이 꺼지고 "운영 중지"가 붙는다. */
-  setStaffed(staffed: boolean): void {
-    this.dim.setVisible(!staffed);
-    for (const glow of this.glows) glow.setVisible(staffed);
-    for (const obj of this.offSign) obj.setVisible(!staffed);
+  /**
+   * 방 상태를 바꾼다.
+   * - active: 맡은 생존자가 있어 가동 중 (불이 켜진다)
+   * - frontier: 다음에 확보할 층 (어둡고, 안에 누군가 있다)
+   * - locked: 아직 갈 수 없는 층 (더 어둡다)
+   */
+  setState(state: RoomState): void {
+    const active = state === 'active';
+    this.dim.setVisible(!active).setFillStyle(0x04060a, state === 'locked' ? 0.84 : 0.6);
+    for (const glow of this.glows) glow.setVisible(active);
+    for (const obj of this.fxObjects) obj.setVisible(active);
+    this.fxActive = active;
+
+    this.signPlate.setVisible(!active);
+    this.signText.setVisible(!active);
+    if (active) return;
+    this.signText.setText(state === 'frontier' ? '미확보 · 안에서 인기척이 난다' : '미확보 구역');
+    const w = Math.ceil(this.signText.width) + 12;
+    this.signPlate.clear();
+    this.signPlate.fillStyle(0x2a0f0d, 0.92).fillRect(0, 0, w, 18);
+    this.signPlate.lineStyle(1, 0xb0463a, 1).strokeRect(0.5, 0.5, w - 1, 17);
   }
 
   /** 층 사이를 잇는 사다리 (방 오른쪽 끝, 층 높이 전체) */
@@ -154,6 +169,7 @@ export class FacilityRoom {
         .setAlpha(0.5)
         .setDisplaySize(54, 54);
       layer.add([halo, lamp]);
+      this.fxObjects.push(halo, lamp);
       let on = true;
       scene.time.addEvent({
         delay: 600,
@@ -167,12 +183,17 @@ export class FacilityRoom {
     } else if (fx.kind === 'drip') {
       const drip = scene.add.sprite(px, py, 'fx-drip', 'drip_0').setOrigin(0, 0).setScale(FX_SCALE);
       layer.add(drip);
+      this.fxObjects.push(drip);
       drip.play('fx-drip');
     } else {
       const spark = scene.add.sprite(px, py, 'fx-spark', 'spark_0').setOrigin(0, 0).setScale(FX_SCALE);
       spark.setVisible(false);
       layer.add(spark);
       const fire = (): void => {
+        if (!this.fxActive) {
+          scene.time.delayedCall(2000, fire);
+          return;
+        }
         spark.setPosition(px + Math.random() * 14, py).setVisible(true);
         spark.play('fx-spark');
         spark.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => spark.setVisible(false));

@@ -51,7 +51,15 @@ export interface FacilityDef {
   color: number;
 }
 
-export type JobType = 'engineer' | 'medic' | 'farmer' | 'scout' | 'guard';
+export type JobType =
+  | 'engineer'
+  | 'medic'
+  | 'farmer'
+  | 'scout'
+  | 'guard'
+  | 'caretaker'
+  | 'mechanic'
+  | 'researcher';
 
 /** 생존자 기본 정보 (1단계~2단계에서는 임시 데이터) */
 export interface SurvivorProfile {
@@ -62,4 +70,6 @@ export interface SurvivorProfile {
   facility: FacilityType;
   /** 캐릭터 그림 키 (assetManifest 의 CHARACTER_KEYS) */
   sprite: string;
+  /** 한 줄 성격 소개 */
+  trait: string;
 }

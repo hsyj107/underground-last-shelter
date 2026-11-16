@@ -7,4 +7,7 @@ export const JOBS: Record<JobType, { label: string }> = {
   farmer: { label: '농업 전문가' },
   scout: { label: '정찰병' },
   guard: { label: '경비병' },
+  caretaker: { label: '살림꾼' },
+  mechanic: { label: '기계공' },
+  researcher: { label: '연구원' },
 };

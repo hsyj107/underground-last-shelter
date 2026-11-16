@@ -8,19 +8,10 @@ export class SurvivorSystem {
   readonly survivors: Survivor[] = [];
 
   constructor(
-    scene: Phaser.Scene,
-    rooms: FacilityRoom[],
-    layer: Phaser.GameObjects.Container,
-    roster: SurvivorProfile[],
+    private readonly scene: Phaser.Scene,
+    private readonly rooms: FacilityRoom[],
+    private readonly layer: Phaser.GameObjects.Container,
   ) {
-    for (const profile of roster) {
-      const room = rooms.find((r) => r.rect.facility.type === profile.facility);
-      if (!room) continue;
-      const survivor = new Survivor(scene, room.rect, profile);
-      layer.add([survivor.shadow, survivor]);
-      this.survivors.push(survivor);
-    }
-
     const onUpdate = (_time: number, delta: number): void => {
       for (const s of this.survivors) s.tick(delta);
     };
@@ -28,6 +19,16 @@ export class SurvivorSystem {
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       scene.events.off(Phaser.Scenes.Events.UPDATE, onUpdate);
     });
+  }
+
+  /** 생존자를 근무 시설 방에 등장시킨다. */
+  add(profile: SurvivorProfile): Survivor | undefined {
+    const room = this.rooms.find((r) => r.rect.facility.type === profile.facility);
+    if (!room) return undefined;
+    const survivor = new Survivor(this.scene, room.rect, profile);
+    this.layer.add([survivor.shadow, survivor]);
+    this.survivors.push(survivor);
+    return survivor;
   }
 
   /** 특정 시설에 배치된 생존자 캐릭터 (없으면 undefined) */
