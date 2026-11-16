@@ -6,7 +6,7 @@ import { ROOM_VISUALS, type Station } from '../config/roomVisuals';
 /** 걷는 속도 (화면 px / 초) */
 const WALK_SPEED = 34;
 
-type Mode = 'idle' | 'walk' | 'act';
+type Mode = 'idle' | 'walk' | 'act' | 'talk';
 
 /**
  * 벙커 안을 돌아다니며 시설과 상호작용하는 생존자.
@@ -41,6 +41,21 @@ export class Survivor extends Phaser.GameObjects.Image {
     this.shadow = scene.add.ellipse(this.x, baseY - 1, this.width + 8, 7, 0x000000, 0.45);
     scene.add.existing(this);
     this.startIdle();
+  }
+
+  /** 하던 일을 멈추고 x 쪽을 바라보며 잠시 대화한다. (메인 캐릭터가 찾아왔을 때) */
+  talkTo(x: number, duration: number): void {
+    this.mode = 'talk';
+    this.action = 'idle';
+    this.target = null;
+    this.resetPose();
+    this.setFlipX(x < this.x);
+    this.timer = duration;
+  }
+
+  /** 대화를 끝내고 하던 일로 돌아간다. */
+  endTalk(): void {
+    if (this.mode === 'talk') this.startIdle();
   }
 
   /** 매 프레임 호출 (SurvivorSystem) */
@@ -94,7 +109,7 @@ export class Survivor extends Phaser.GameObjects.Image {
 
   private chooseNext(): void {
     // 일하던 자리에서 잠깐 쉬었다가 다른 자리로 이동한다.
-    if (this.mode === 'act') {
+    if (this.mode === 'act' || this.mode === 'talk') {
       this.startIdle();
       return;
     }

@@ -30,6 +30,11 @@ export class SurvivorSystem {
     });
   }
 
+  /** 특정 시설에 배치된 생존자 캐릭터 (없으면 undefined) */
+  getSurvivorIn(type: FacilityType): Survivor | undefined {
+    return this.survivors.find((s) => s.profile.facility === type);
+  }
+
   /** 특정 시설에서 일하는 생존자 정보 */
   getWorkers(type: FacilityType): SurvivorProfile[] {
     return this.survivors.filter((s) => s.profile.facility === type).map((s) => s.profile);

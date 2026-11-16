@@ -85,7 +85,9 @@ export class FacilityPanel extends Phaser.GameObjects.Container {
     this.title.setText(facility.name);
     this.level.setX(16 + this.title.width + 10);
     this.desc.setText(info.description);
-    this.effect.setText(info.effect);
+    const staffed = workers.length > 0;
+    this.effect.setText(staffed ? info.effect : '운영 중지 · 인원을 배치해야 가동됩니다');
+    this.effect.setColor(staffed ? TEXT_COLORS.good : TEXT_COLORS.warn);
     this.consume.setText(info.consume);
     this.workers.setText(
       workers.length > 0

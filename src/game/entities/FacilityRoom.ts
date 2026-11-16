@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { ROOM_VISUALS, type FxDef } from '../config/roomVisuals';
-import type { RoomRect } from '../config/bunkerLayout';
+import { SHAFT_X, type RoomRect } from '../config/bunkerLayout';
 import { roomTextureKey } from '../art/registerArt';
 import { createText } from '../../ui/styles/theme';
 
@@ -17,6 +17,9 @@ export class FacilityRoom {
   private readonly scene: Phaser.Scene;
   private border: Phaser.GameObjects.Graphics | null = null;
   private borderTween: Phaser.Tweens.Tween | null = null;
+  private readonly glows: Phaser.GameObjects.Image[] = [];
+  private readonly dim: Phaser.GameObjects.Rectangle;
+  private readonly offSign: (Phaser.GameObjects.Graphics | Phaser.GameObjects.Text)[];
 
   constructor(scene: Phaser.Scene, rect: RoomRect, layer: Phaser.GameObjects.Container) {
     this.scene = scene;
@@ -27,6 +30,8 @@ export class FacilityRoom {
     // 배경 (그림 크기가 달라도 방 크기에 맞춘다)
     layer.add(scene.add.image(x, y, roomTextureKey(facility.type)).setOrigin(0, 0).setDisplaySize(w, h));
 
+    layer.add(this.drawLadder());
+
     // 조명 깜빡임
     for (const lx of visual.lamps) {
       const glow = scene.add
@@ -36,6 +41,7 @@ export class FacilityRoom {
         .setAlpha(0.2)
         .setDisplaySize(150, 110);
       layer.add(glow);
+      this.glows.push(glow);
       scene.tweens.add({
         targets: glow,
         alpha: 0.11,
@@ -49,6 +55,10 @@ export class FacilityRoom {
 
     for (const fx of visual.fx) this.addFx(layer, fx);
 
+    // 인원이 없어 멈춘 방은 어둡게 덮는다.
+    this.dim = scene.add.rectangle(x, y, w, h, 0x04060a, 0.62).setOrigin(0, 0).setVisible(false);
+    layer.add(this.dim);
+
     // 이름표
     const label = createText(scene, 0, 0, `B${facility.floor}  ${facility.name}`, { size: 12, bold: true, color: '#e2e6ea' });
     const plateW = Math.ceil(label.width) + 14;
@@ -58,6 +68,43 @@ export class FacilityRoom {
     plate.setPosition(x + 14, y + 36);
     label.setPosition(x + 21, y + 38);
     layer.add([plate, label]);
+
+    // "운영 중지" 표지 (이름표 옆)
+    const off = createText(scene, 0, 0, '운영 중지 · 인원 없음', { size: 11, bold: true, color: '#ff8a7a' });
+    const offW = Math.ceil(off.width) + 12;
+    const offPlate = scene.add.graphics();
+    offPlate.fillStyle(0x2a0f0d, 0.92).fillRect(0, 0, offW, 18);
+    offPlate.lineStyle(1, 0xb0463a, 1).strokeRect(0.5, 0.5, offW - 1, 17);
+    offPlate.setPosition(x + 14 + plateW + 6, y + 36);
+    off.setPosition(x + 14 + plateW + 12, y + 39);
+    offPlate.setVisible(false);
+    off.setVisible(false);
+    this.offSign = [offPlate, off];
+    layer.add(this.offSign);
+  }
+
+  /** 배치된 인원이 있어야 시설이 가동된다. 없으면 불이 꺼지고 "운영 중지"가 붙는다. */
+  setStaffed(staffed: boolean): void {
+    this.dim.setVisible(!staffed);
+    for (const glow of this.glows) glow.setVisible(staffed);
+    for (const obj of this.offSign) obj.setVisible(!staffed);
+  }
+
+  /** 층 사이를 잇는 사다리 (방 오른쪽 끝, 층 높이 전체) */
+  private drawLadder(): Phaser.GameObjects.Graphics {
+    const { x, y, h } = this.rect;
+    const lx = x + SHAFT_X - 9;
+    const g = this.scene.add.graphics();
+    g.fillStyle(0x06080a, 0.5).fillRect(lx - 4, y, 26, h);
+    for (let ry = y + 5; ry < y + h - 2; ry += 11) {
+      g.fillStyle(0x4d5258, 1).fillRect(lx + 3, ry, 12, 2);
+      g.fillStyle(0x121518, 1).fillRect(lx + 3, ry + 2, 12, 1);
+    }
+    for (const rx of [lx, lx + 15]) {
+      g.fillStyle(0x2b2f34, 1).fillRect(rx, y, 3, h);
+      g.fillStyle(0x70767d, 1).fillRect(rx, y, 1, h);
+    }
+    return g;
   }
 
   contains(worldX: number, worldY: number): boolean {

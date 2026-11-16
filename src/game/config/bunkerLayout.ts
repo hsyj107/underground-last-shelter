@@ -11,6 +11,9 @@ export const WORLD_H = LAYOUT.surfaceHeight + FLOOR_COUNT * FLOOR_H;
 /** 방 안에서 캐릭터 발이 닿는 y (방 위쪽 기준) */
 export const FEET_Y = 200;
 
+/** 층 사이를 오르내리는 사다리의 x (방 왼쪽 기준). 메인 캐릭터가 이 사다리로 층을 옮긴다. */
+export const SHAFT_X = 524;
+
 /** 방 하나의 위치/크기 (벙커 전체 기준 좌표, 화면 px) */
 export interface RoomRect {
   facility: FacilityDef;
