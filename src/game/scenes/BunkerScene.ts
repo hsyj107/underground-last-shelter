@@ -4,6 +4,7 @@ import { MENU_ITEMS } from '../../data/menus';
 import { MOCK_BUNKER_SUMMARY } from '../../data/mockState';
 import { PLAYER } from '../../data/player';
 import { PLAYER_GREETINGS } from '../../data/dialogues';
+import { MINIGAMES } from '../../data/minigames';
 import { INTRO, STORY, type StoryLine } from '../../data/story';
 import { BottomMenu } from '../../ui/components/BottomMenu';
 import { DialogueBox, type DialogueEntry } from '../../ui/components/DialogueBox';
@@ -16,6 +17,7 @@ import { GAME_HEIGHT, GAME_WIDTH, LAYOUT, PX } from '../config/layout';
 import { FacilityRoom } from '../entities/FacilityRoom';
 import { Player } from '../entities/Player';
 import type { Survivor } from '../entities/Survivor';
+import { MinigameOverlay } from '../minigames/MinigameOverlay';
 import { loadSecuredFloors, saveSecuredFloors } from '../state/progress';
 import { SurvivorSystem } from '../systems/SurvivorSystem';
 
@@ -48,6 +50,9 @@ export class BunkerScene extends Phaser.Scene {
   private visitToken = 0;
   private talkingWith: Survivor | null = null;
   private dialogue!: DialogueBox;
+  private minigame!: MinigameOverlay;
+  /** 이번 접속에서 이미 첫 만남 대화를 본 층 (다시 도전할 때는 부탁만 다시 듣는다) */
+  private readonly metFloors = new Set<number>();
   private banner!: Phaser.GameObjects.Text;
   /** 확보한 층 수 (위에서부터). 다음에 확보할 층은 secured + 1 층이다. */
   private secured = 0;
@@ -76,6 +81,7 @@ export class BunkerScene extends Phaser.Scene {
     this.resourceBar = new ResourceBar(this);
     this.bottomMenu = new BottomMenu(this, MENU_ITEMS, (id) => this.selectMenu(id));
     this.dialogue = new DialogueBox(this);
+    this.minigame = new MinigameOverlay(this);
     this.banner = createText(this, GAME_WIDTH / 2, LAYOUT.contentTop + 34, '', {
       size: 17,
       bold: true,
@@ -166,7 +172,7 @@ export class BunkerScene extends Phaser.Scene {
 
     // PC: 마우스 휠로도 층을 이동한다.
     this.input.on(Phaser.Input.Events.POINTER_WHEEL, (p: Phaser.Input.Pointer, _over: unknown, _dx: number, dy: number) => {
-      if (this.activeMenu !== 'bunker' || this.dialogue.isOpen) return;
+      if (this.activeMenu !== 'bunker' || this.dialogue.isOpen || this.minigame.isOpen) return;
       if (p.y < LAYOUT.contentTop || p.y > LAYOUT.contentBottom) return;
       this.following = false;
       this.scrollTo(this.bunkerLayer.y - dy * 0.6);
@@ -271,15 +277,34 @@ export class BunkerScene extends Phaser.Scene {
     });
   }
 
-  /** 아직 확보하지 않은 층에 도착: 그 층에 있던 생존자와 처음 만난다. */
+  /**
+   * 아직 확보하지 않은 층에 도착: 그 층에 있던 생존자와 처음 만난다.
+   * 대화 끝에 생존자가 부탁을 하고, 그 시설의 미니게임을 성공해야 동료가 된다.
+   */
   private startEncounter(room: FacilityRoom, worker: Survivor): void {
-    const story = STORY.find((s) => s.floor === room.rect.facility.floor);
+    const { facility } = room.rect;
+    const story = STORY.find((s) => s.floor === facility.floor);
     if (!story) return;
     worker.talkTo(this.player.x, Number.POSITIVE_INFINITY);
     this.player.face(worker.x);
+
+    const request: StoryLine = { who: 'npc', text: story.request };
+    const lines = this.metFloors.has(facility.floor) ? [request] : [...story.encounter, request];
+    this.metFloors.add(facility.floor);
+
     this.dialogue.play(
-      this.toEntries(story.encounter, story.survivor.name),
-      () => this.secureFloor(room, worker, story.secured),
+      this.toEntries(lines, story.survivor.name),
+      () => {
+        this.minigame.play(MINIGAMES[facility.type], (success) => {
+          if (success) {
+            this.secureFloor(room, worker, story.secured);
+          } else {
+            // 그만두면 층은 그대로 미확보. 다시 찾아가면 다시 도전할 수 있다.
+            this.selectRoom(null);
+            this.showBanner('준비되면 다시 찾아가세요');
+          }
+        });
+      },
       this.isRoomLow(room),
     );
   }

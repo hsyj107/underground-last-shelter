@@ -14,7 +14,7 @@ const BOX_H = 132;
 /** 이야기 대화창. 화면 아무 곳이나 누르면 다음 줄로 넘어가고, 열려 있는 동안 다른 조작은 막는다. */
 export class DialogueBox extends Phaser.GameObjects.Container {
   private readonly speaker: Phaser.GameObjects.Text;
-  private readonly body: Phaser.GameObjects.Text;
+  private readonly bodyText: Phaser.GameObjects.Text;
   private readonly box: Phaser.GameObjects.Container;
   private queue: DialogueEntry[] = [];
   private index = 0;
@@ -37,8 +37,8 @@ export class DialogueBox extends Phaser.GameObjects.Container {
     bg.fillStyle(0xf2a93b, 1).fillRect(x + 3, y + 3, BOX_W - 6, 3);
 
     this.speaker = createText(scene, x + 16, y + 14, '', { size: 15, bold: true, color: TEXT_COLORS.accent });
-    this.body = createText(scene, x + 16, y + 40, '', { size: 16, color: TEXT_COLORS.main });
-    this.body.setWordWrapWidth(BOX_W - 32, true).setLineSpacing(5);
+    this.bodyText = createText(scene, x + 16, y + 40, '', { size: 16, color: TEXT_COLORS.main });
+    this.bodyText.setWordWrapWidth(BOX_W - 32, true).setLineSpacing(5);
     const more = createText(scene, x + BOX_W - 14, y + BOX_H - 10, '눌러서 계속 ▼', {
       size: 12,
       bold: true,
@@ -48,7 +48,7 @@ export class DialogueBox extends Phaser.GameObjects.Container {
     });
     scene.tweens.add({ targets: more, alpha: 0.35, duration: 600, yoyo: true, repeat: -1 });
 
-    this.box = scene.add.container(16, 0, [bg, this.speaker, this.body, more]);
+    this.box = scene.add.container(16, 0, [bg, this.speaker, this.bodyText, more]);
     this.add([catcher, this.box]);
     this.setDepth(60).setVisible(false);
     scene.add.existing(this);
@@ -91,8 +91,8 @@ export class DialogueBox extends Phaser.GameObjects.Container {
     const entry = this.queue[this.index];
     const narration = entry.speaker === '';
     this.speaker.setText(narration ? '' : entry.speaker);
-    this.body.setText(entry.text);
-    this.body.setColor(narration ? '#c9d1d9' : TEXT_COLORS.main);
-    this.body.setY(this.speaker.y + (narration ? 6 : 26));
+    this.bodyText.setText(entry.text);
+    this.bodyText.setColor(narration ? '#c9d1d9' : TEXT_COLORS.main);
+    this.bodyText.setY(this.speaker.y + (narration ? 6 : 26));
   }
 }
