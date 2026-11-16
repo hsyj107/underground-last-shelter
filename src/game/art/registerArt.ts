@@ -1,28 +1,11 @@
 import Phaser from 'phaser';
 import { drawDrip, drawGlow, drawRock, drawSpark, drawSurface, drawWarnLight } from '../../art/envArt';
 import { drawIcon, ICONS } from '../../art/iconArt';
-import { drawRoom } from '../../art/rooms';
-import { ROOM_ART_H } from '../../art/roomShell';
-import {
-  CELL_H,
-  CELL_W,
-  drawSurvivorSheet,
-  frameRects,
-  LOOKS,
-  POSE_FRAMES,
-  POSE_ORDER,
-  TOTAL_FRAMES,
-  frameName,
-  type Pose,
-} from '../../art/survivorArt';
 import type { Ctx } from '../../art/pixel';
-import { computeRoomRects } from '../config/bunkerLayout';
 import { LAYOUT, PX } from '../config/layout';
 
 /** 텍스처 키 규칙 */
 export const roomTextureKey = (type: string): string => `room-${type}`;
-export const survivorTextureKey = (look: string): string => `surv-${look}`;
-export const survivorAnimKey = (look: string, pose: Pose): string => `${look}-${pose}`;
 
 type Tex = Phaser.Textures.CanvasTexture;
 
@@ -64,9 +47,7 @@ function createAnim(
   });
 }
 
-const POSE_RATE: Record<Pose, number> = { idle: 2, walk: 8, work: 6, inspect: 2, rest: 1.5 };
-
-/** 모든 픽셀 아트 텍스처와 애니메이션을 만든다. (PreloadScene 에서 한 번 호출) */
+/** 코드로 그리는 텍스처(아이콘·지상·암반·연출 효과)를 만든다. 방과 캐릭터는 PNG 파일을 쓴다. (PreloadScene 에서 한 번 호출) */
 export function registerArt(scene: Phaser.Scene): void {
   // UI 아이콘
   for (const icon of ICONS) {
@@ -79,13 +60,6 @@ export function registerArt(scene: Phaser.Scene): void {
   canvasTexture(scene, 'env-surface', 180, LAYOUT.surfaceHeight / PX, (ctx) =>
     drawSurface(ctx, 180, LAYOUT.surfaceHeight / PX),
   );
-
-  // 시설 방
-  for (const rect of computeRoomRects()) {
-    canvasTexture(scene, roomTextureKey(rect.facility.type), rect.artW, ROOM_ART_H, (ctx) =>
-      drawRoom(rect.facility.type, ctx, rect.artW),
-    );
-  }
 
   // 빛 번짐
   canvasTexture(scene, 'glow', 64, 64, (ctx) => drawGlow(ctx, 64));
@@ -123,19 +97,4 @@ export function registerArt(scene: Phaser.Scene): void {
 
   createAnim(scene, 'fx-drip', 'fx-drip', ['drip_0', 'drip_1', 'drip_2', 'drip_3'], 6, -1);
   createAnim(scene, 'fx-spark', 'fx-spark', ['spark_0', 'spark_1', 'spark_2'], 14, 0);
-
-  // 생존자 시트 + 애니메이션
-  const frames = frameRects();
-  for (const [look, def] of Object.entries(LOOKS)) {
-    const key = survivorTextureKey(look);
-    const tex = canvasTexture(scene, key, CELL_W * TOTAL_FRAMES, CELL_H, (ctx) => drawSurvivorSheet(ctx, def));
-    if (!tex) continue;
-    for (const f of frames) tex.add(f.name, 0, f.x, 0, CELL_W, CELL_H);
-
-    for (const pose of POSE_ORDER) {
-      const names: string[] = [];
-      for (let i = 0; i < POSE_FRAMES[pose]; i++) names.push(frameName(pose, i));
-      createAnim(scene, survivorAnimKey(look, pose), key, names, POSE_RATE[pose], -1);
-    }
-  }
 }

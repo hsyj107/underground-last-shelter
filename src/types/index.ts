@@ -60,4 +60,6 @@ export interface SurvivorProfile {
   job: JobType;
   /** 근무하는 시설 */
   facility: FacilityType;
+  /** 캐릭터 그림 키 (assetManifest 의 CHARACTER_KEYS) */
+  sprite: string;
 }

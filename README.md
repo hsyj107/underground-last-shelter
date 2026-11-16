@@ -38,6 +38,12 @@ npm run dev
 `src/game/config/assetManifest.ts`에서 해당 항목에 `file: 'assets/icons/food.png'`처럼 경로만 추가하고
 이미지를 `public/assets/` 아래에 넣으면 임시 도형 대신 픽셀 아트가 표시됩니다.
 
+## 그림 파일 다시 만들기
+
+방 배경과 캐릭터 PNG(`public/assets/rooms`, `public/assets/characters`)는 `tools/asset-pipeline/`의
+`extract.py`, `build.py`가 원본 시트(`source-sheet.png`)에서 잘라내고 합성해 만든 것입니다.
+방 안 소품 배치를 바꾸려면 `build.py`의 `ROOMS` 목록을 고친 뒤 다시 실행합니다.
+
 ## 폴더 구조
 
 ```

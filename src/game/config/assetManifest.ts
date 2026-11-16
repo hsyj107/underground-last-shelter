@@ -24,6 +24,21 @@ const icon = (key: string, color: number, shape: PlaceholderShape): AssetEntry =
   placeholder: { width: 32, height: 32, color, shape },
 });
 
+const image = (key: string, file: string, width: number, height: number, color: number): AssetEntry => ({
+  key,
+  file,
+  placeholder: { width, height, color, shape: 'rect' },
+});
+
+const ROOM_TYPES = [
+  'power_plant', 'water_purifier', 'farm', 'dormitory', 'medical', 'workshop', 'laboratory', 'armory',
+];
+
+/** 사용할 수 있는 캐릭터 그림 목록 (public/assets/characters) */
+export const CHARACTER_KEYS = [
+  'c_woman1', 'c_woman2', 'c_man_red', 'c_elder', 'c_strong', 'c_bald', 'c_big', 'c_hijab', 'c_beard', 'c_glasses', 'dog',
+];
+
 export const ASSET_MANIFEST: AssetEntry[] = [
   // 자원 아이콘
   icon('icon-food', 0x6fcf6f, 'circle'),
@@ -39,4 +54,10 @@ export const ASSET_MANIFEST: AssetEntry[] = [
   icon('menu-survivors', 0xd0d7de, 'circle'),
   icon('menu-world', 0xd0d7de, 'diamond'),
   icon('menu-shop', 0xd0d7de, 'rect'),
+
+  // 시설 방 배경 (tools/asset-pipeline 으로 생성한 PNG)
+  ...ROOM_TYPES.map((type) => image(`room-${type}`, `assets/rooms/room-${type}.png`, 540, 220, 0x2a2d30)),
+
+  // 캐릭터
+  ...CHARACTER_KEYS.map((key) => image(key, `assets/characters/${key}.png`, 30, 72, 0x8a8f96)),
 ];

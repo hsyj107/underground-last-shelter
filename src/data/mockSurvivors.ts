@@ -5,9 +5,9 @@ import type { SurvivorProfile } from '../types';
  * MOCK_BUNKER_SUMMARY.survivors 의 숫자와 맞춰 두었다.
  */
 export const MOCK_SURVIVORS: SurvivorProfile[] = [
-  { id: 's1', name: '한도윤', job: 'engineer', facility: 'power_plant' },
-  { id: 's2', name: '서지우', job: 'engineer', facility: 'water_purifier' },
-  { id: 's3', name: '박민재', job: 'farmer', facility: 'farm' },
-  { id: 's4', name: '최하은', job: 'medic', facility: 'medical' },
-  { id: 's5', name: '이강훈', job: 'guard', facility: 'armory' },
+  { id: 's1', name: '한도윤', job: 'engineer', facility: 'power_plant', sprite: 'c_beard' },
+  { id: 's2', name: '서지우', job: 'engineer', facility: 'water_purifier', sprite: 'c_strong' },
+  { id: 's3', name: '박민재', job: 'farmer', facility: 'farm', sprite: 'c_glasses' },
+  { id: 's4', name: '최하은', job: 'medic', facility: 'medical', sprite: 'c_woman1' },
+  { id: 's5', name: '이강훈', job: 'guard', facility: 'armory', sprite: 'c_big' },
 ];

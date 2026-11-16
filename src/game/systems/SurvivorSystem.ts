@@ -17,7 +17,7 @@ export class SurvivorSystem {
       const room = rooms.find((r) => r.rect.facility.type === profile.facility);
       if (!room) continue;
       const survivor = new Survivor(scene, room.rect, profile);
-      layer.add(survivor);
+      layer.add([survivor.shadow, survivor]);
       this.survivors.push(survivor);
     }
 

@@ -71,6 +71,11 @@ export class FacilityPanel extends Phaser.GameObjects.Container {
     scene.add.existing(this);
   }
 
+  /** 화면 좌표가 열려 있는 패널 위인지 (벙커 터치와 겹치지 않게 할 때 사용) */
+  containsPoint(x: number, y: number): boolean {
+    return this.open && x >= this.x && x <= this.x + PANEL_W && y >= this.y - 14 && y <= this.y + PANEL_H + 14;
+  }
+
   get isOpen(): boolean {
     return this.open;
   }

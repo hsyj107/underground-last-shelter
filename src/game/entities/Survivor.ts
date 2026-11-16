@@ -1,55 +1,55 @@
 import Phaser from 'phaser';
-import { FEET_Y } from '../../art/roomShell';
-import { JOBS } from '../../data/jobs';
 import type { SurvivorProfile } from '../../types';
-import { survivorAnimKey, survivorTextureKey } from '../art/registerArt';
-import type { RoomRect } from '../config/bunkerLayout';
-import { PX } from '../config/layout';
+import { FEET_Y, type RoomRect } from '../config/bunkerLayout';
 import { ROOM_VISUALS, type Station } from '../config/roomVisuals';
 
 /** 걷는 속도 (화면 px / 초) */
-const WALK_SPEED = 14 * PX;
+const WALK_SPEED = 34;
 
 type Mode = 'idle' | 'walk' | 'act';
 
 /**
  * 벙커 안을 돌아다니며 시설과 상호작용하는 생존자.
- * 배정된 방의 작업 위치(station)를 오가며 걷기 → 작업/점검/휴식 → 대기를 반복한다.
+ * 캐릭터 그림은 한 장짜리 PNG 이고, 걷기·작업·점검·휴식은 흔들림/기울임으로 표현한다.
+ * (동작 프레임 그림이 생기면 이 클래스에서 애니메이션으로 교체한다.)
  */
-export class Survivor extends Phaser.GameObjects.Sprite {
+export class Survivor extends Phaser.GameObjects.Image {
   readonly profile: SurvivorProfile;
+  readonly shadow: Phaser.GameObjects.Ellipse;
   private readonly room: RoomRect;
-  private readonly look: string;
   private readonly stations: Station[];
   private readonly baseY: number;
   private mode: Mode = 'idle';
+  private action: Station['action'] = 'idle';
   private timer = 0;
+  private clock = Math.random() * 1000;
   private current = -1;
   private target: Station | null = null;
 
   constructor(scene: Phaser.Scene, room: RoomRect, profile: SurvivorProfile) {
-    const look = JOBS[profile.job].look;
     const stations = ROOM_VISUALS[room.facility.type].stations;
     const start = stations[Math.floor(Math.random() * stations.length)];
-    const baseY = room.y + FEET_Y * PX;
+    const baseY = room.y + FEET_Y;
 
-    super(scene, room.x + start.x * PX, baseY, survivorTextureKey(look), 'idle_0');
+    super(scene, room.x + start.x, baseY, profile.sprite);
 
     this.profile = profile;
     this.room = room;
-    this.look = look;
     this.stations = stations;
     this.baseY = baseY;
-
-    this.setOrigin(0.5, 1).setScale(PX);
+    this.setOrigin(0.5, 1);
+    this.shadow = scene.add.ellipse(this.x, baseY - 1, this.width + 8, 7, 0x000000, 0.45);
     scene.add.existing(this);
     this.startIdle();
   }
 
   /** 매 프레임 호출 (SurvivorSystem) */
   tick(delta: number): void {
+    this.clock += delta;
+    const dir = this.flipX ? -1 : 1;
+
     if (this.mode === 'walk' && this.target) {
-      const targetX = this.room.x + this.target.x * PX;
+      const targetX = this.room.x + this.target.x;
       const dist = targetX - this.x;
       const step = (WALK_SPEED * delta) / 1000;
       if (Math.abs(dist) <= step) {
@@ -57,19 +57,39 @@ export class Survivor extends Phaser.GameObjects.Sprite {
         this.beginAct(this.target);
       } else {
         this.x += Math.sign(dist) * step;
+        const swing = Math.sin(this.clock * 0.014);
+        this.y = this.baseY - Math.abs(swing) * 2.5;
+        this.setAngle(swing * 2.5);
       }
+      this.shadow.x = this.x;
       return;
+    }
+
+    if (this.mode === 'act' && this.action === 'work') {
+      // 몸을 앞으로 숙였다 폈다 하며 일한다.
+      this.setAngle(dir * (4 + Math.sin(this.clock * 0.011) * 4));
+    } else if (this.mode === 'act' && this.action === 'inspect') {
+      this.setAngle(dir * 2);
+      this.y = this.baseY - (Math.sin(this.clock * 0.004) > 0.7 ? 1 : 0);
+    } else {
+      // 대기/휴식: 숨쉬기
+      this.setScale(1, 1 + Math.sin(this.clock * 0.003) * 0.012);
     }
 
     this.timer -= delta;
     if (this.timer <= 0) this.chooseNext();
   }
 
+  private resetPose(): void {
+    this.setAngle(0).setScale(1, 1);
+    this.y = this.baseY;
+  }
+
   private startIdle(): void {
     this.mode = 'idle';
-    this.y = this.baseY;
+    this.action = 'idle';
+    this.resetPose();
     this.timer = 1200 + Math.random() * 1400;
-    this.play(survivorAnimKey(this.look, 'idle'), true);
   }
 
   private chooseNext(): void {
@@ -85,26 +105,25 @@ export class Survivor extends Phaser.GameObjects.Sprite {
     }
     this.current = next;
     const station = this.stations[next];
-    const targetX = this.room.x + station.x * PX;
+    const targetX = this.room.x + station.x;
 
     if (Math.abs(targetX - this.x) < 2) {
       this.beginAct(station);
       return;
     }
+    this.resetPose();
     this.target = station;
     this.mode = 'walk';
-    this.y = this.baseY;
     this.setFlipX(targetX < this.x);
-    this.play(survivorAnimKey(this.look, 'walk'), true);
   }
 
   private beginAct(station: Station): void {
     this.mode = 'act';
+    this.action = station.action;
     this.target = null;
+    this.resetPose();
     this.setFlipX(station.face === 'left');
-    this.y = this.baseY - (station.lift ?? 0) * PX;
     const [min, max] = station.duration;
     this.timer = min + Math.random() * (max - min);
-    this.play(survivorAnimKey(this.look, station.action), true);
   }
 }
