@@ -65,6 +65,11 @@ export class Player extends Phaser.GameObjects.Image {
     if (this.plan) this.plan = { ...this.plan, onArrive: () => undefined };
   }
 
+  /** 캐릭터 그림을 바꾼다 (캐릭터를 새로 만들었을 때). */
+  setLook(sprite: string): void {
+    this.setTexture(sprite);
+  }
+
   face(x: number): void {
     this.setFlipX(x < this.x);
   }

@@ -1,16 +1,18 @@
 import Phaser from 'phaser';
-import type { MenuId } from '../../types';
-import { MENU_ITEMS } from '../../data/menus';
-import { MOCK_BUNKER_SUMMARY } from '../../data/mockState';
-import { PLAYER } from '../../data/player';
+import type { FacilityType, MenuId } from '../../types';
 import { PLAYER_GREETINGS } from '../../data/dialogues';
+import { MENU_ITEMS } from '../../data/menus';
 import { MINIGAMES } from '../../data/minigames';
-import { INTRO, STORY, type StoryLine } from '../../data/story';
+import { PLAYER_START_X, playerSprite } from '../../data/player';
+import { MAX_FACILITY_LEVEL, upgradeCost } from '../../data/progression';
+import { introLines } from '../../data/story';
+import { NORMAL_LINES } from '../../data/survivorPool';
 import { BottomMenu } from '../../ui/components/BottomMenu';
-import { DialogueBox, type DialogueEntry } from '../../ui/components/DialogueBox';
+import { DialogueBox } from '../../ui/components/DialogueBox';
 import { FacilityPanel } from '../../ui/components/FacilityPanel';
 import { ResourceBar } from '../../ui/components/ResourceBar';
 import { SpeechBubble } from '../../ui/components/SpeechBubble';
+import { openCharacterCreator, openExpeditionScreen, openSurvivorList, openSurvivorPicker } from '../../ui/dom/screens';
 import { COLORS, TEXT_COLORS, createText } from '../../ui/styles/theme';
 import { computeRoomRects, FEET_Y, FLOOR_H, WORLD_H } from '../config/bunkerLayout';
 import { GAME_HEIGHT, GAME_WIDTH, LAYOUT, PX } from '../config/layout';
@@ -18,7 +20,10 @@ import { FacilityRoom } from '../entities/FacilityRoom';
 import { Player } from '../entities/Player';
 import type { Survivor } from '../entities/Survivor';
 import { MinigameOverlay } from '../minigames/MinigameOverlay';
-import { loadSecuredFloors, saveSecuredFloors } from '../state/progress';
+import {
+  canUnlock, capacity, createProfile, facilityStatus, game, unlockConditions, unlockFacility, upgradeFacility,
+  workersIn,
+} from '../state/gameState';
 import { SurvivorSystem } from '../systems/SurvivorSystem';
 
 /** 이 거리(px) 이상 움직이면 "누르기"가 아니라 "끌기"로 본다. */
@@ -30,8 +35,11 @@ const pick = (list: string[]): string => list[Math.floor(Math.random() * list.le
 
 /**
  * 메인 화면: 상단 자원바 + 중앙 벙커 단면(한 층에 시설 하나) + 하단 메뉴.
- * 방을 누르면 내 메인 캐릭터가 사다리로 그 층까지 직접 가고, 배치된 생존자가 있으면 말을 주고받는다.
- * 처음에는 주인공 혼자이고, 위층부터 한 층씩 그 층의 생존자를 만나 동료로 맞이하면 층이 확보된다.
+ *
+ * - 처음에는 주인공(대장) 혼자다. 캐릭터를 만들고 도입부를 본 뒤 시작한다.
+ * - 방을 누르면 대장이 사다리로 그 층까지 직접 가고, 도착하면 상세 패널이 열린다.
+ * - 시설은 조건(대장 레벨·이전 시설 레벨·철)을 채우고 복구 작업(미니게임)을 성공하면 개방된다.
+ * - 생존자는 [탐험]으로 구해 오고, 시설에 배치해야 그 시설이 가동된다.
  */
 export class BunkerScene extends Phaser.Scene {
   private resourceBar!: ResourceBar;
@@ -51,11 +59,9 @@ export class BunkerScene extends Phaser.Scene {
   private talkingWith: Survivor | null = null;
   private dialogue!: DialogueBox;
   private minigame!: MinigameOverlay;
-  /** 이번 접속에서 이미 첫 만남 대화를 본 층 (다시 도전할 때는 부탁만 다시 듣는다) */
-  private readonly metFloors = new Set<number>();
   private banner!: Phaser.GameObjects.Text;
-  /** 확보한 층 수 (위에서부터). 다음에 확보할 층은 secured + 1 층이다. */
-  private secured = 0;
+  /** 탐험대가 돌아왔다는 알림을 이미 띄웠는지 */
+  private returnNotified = false;
   private selectedRoom: FacilityRoom | null = null;
   private comingSoon!: Phaser.GameObjects.Container;
   private comingSoonText!: Phaser.GameObjects.Text;
@@ -77,7 +83,11 @@ export class BunkerScene extends Phaser.Scene {
     this.createBunker();
     this.comingSoon = this.createComingSoonPanel();
 
-    this.panel = new FacilityPanel(this, () => this.selectRoom(null));
+    this.panel = new FacilityPanel(this, {
+      onClose: () => this.selectRoom(null),
+      onPrimary: () => this.pressPrimary(),
+      onAssign: () => this.pressAssign(),
+    });
     this.resourceBar = new ResourceBar(this);
     this.bottomMenu = new BottomMenu(this, MENU_ITEMS, (id) => this.selectMenu(id));
     this.dialogue = new DialogueBox(this);
@@ -94,12 +104,18 @@ export class BunkerScene extends Phaser.Scene {
     this.banner.setStroke('#0b0e12', 5);
     this.setupInput();
 
-    // 임시 데이터로 화면 확인 (6단계에서 서버 데이터로 교체)
-    this.refreshSummary();
+    this.refresh();
     this.selectMenu('bunker');
 
-    // 처음 시작하면 도입부를 보여 준다.
-    if (this.secured === 0) this.dialogue.play(this.toEntries(INTRO, ''), () => undefined);
+    // 처음 시작: 캐릭터를 만들고 도입부를 본다.
+    if (!game.profile) {
+      openCharacterCreator((profile) => {
+        createProfile(profile);
+        this.player.setLook(playerSprite(profile));
+        this.refresh();
+        this.dialogue.play(introLines(profile.nickname), () => undefined);
+      });
+    }
   }
 
   /** 고정 배경(암반) 위에, 위아래로 움직이는 벙커 레이어(지상 + 층들)를 올린다. */
@@ -112,21 +128,15 @@ export class BunkerScene extends Phaser.Scene {
     const layer = this.bunkerLayer;
     layer.add(this.add.image(0, LAYOUT.contentTop, 'env-surface').setOrigin(0, 0).setScale(PX));
     this.rooms = computeRoomRects().map((rect) => new FacilityRoom(this, rect, layer));
-    // 생존자는 따로 묶어 두어, 나중에 합류해도 메인 캐릭터·말풍선보다 뒤에 그려지게 한다.
+
+    // 생존자는 따로 묶어 두어, 나중에 배치해도 메인 캐릭터·말풍선보다 뒤에 그려지게 한다.
     const survivorLayer = this.add.container(0, 0);
     layer.add(survivorLayer);
     this.survivors = new SurvivorSystem(this, this.rooms, survivorLayer);
-
-    // 저장된 진행 상황대로 층과 생존자를 놓는다. (임시: 이 기기의 브라우저에 저장)
-    this.secured = loadSecuredFloors(STORY.length);
-    for (const story of STORY) {
-      if (story.floor <= this.secured) this.survivors.add(story.survivor);
-    }
-    this.spawnFrontier();
-    this.refreshRoomStates();
+    this.survivors.sync(game.survivors);
 
     // 내 메인 캐릭터 (지하 1층에서 시작)
-    this.player = new Player(this, this.rooms[0].rect, PLAYER.startX, PLAYER.sprite);
+    this.player = new Player(this, this.rooms[0].rect, PLAYER_START_X, playerSprite(game.profile));
     layer.add([this.player.shadow, this.player, this.player.marker]);
 
     for (const room of this.rooms) room.addOverlay(layer);
@@ -196,6 +206,7 @@ export class BunkerScene extends Phaser.Scene {
   /** 매 프레임: 메인 캐릭터를 움직이고, 화면이 캐릭터를 따라가게 한다. */
   update(_time: number, delta: number): void {
     this.player.tick(delta);
+    this.checkExpeditionReturn();
     if (!this.following || this.pressActive) return;
 
     const floorCenterY = this.player.feetY - FEET_Y + FLOOR_H / 2;
@@ -207,6 +218,17 @@ export class BunkerScene extends Phaser.Scene {
     } else {
       this.bunkerLayer.y += diff * Math.min(1, delta * 0.008);
     }
+  }
+
+  /** 탐험이 끝났으면 한 번 알려 준다. */
+  private checkExpeditionReturn(): void {
+    if (!game.expedition) {
+      this.returnNotified = false;
+      return;
+    }
+    if (this.returnNotified || Date.now() < game.expedition.endsAt) return;
+    this.returnNotified = true;
+    this.showBanner('탐험대가 돌아왔습니다 · [탐험]에서 확인하세요');
   }
 
   /** 벙커 전체 좌표의 y 가 화면 가운데에 오게 하는 레이어 위치 */
@@ -224,14 +246,8 @@ export class BunkerScene extends Phaser.Scene {
     this.scrollHint.setVisible(false);
   }
 
-  /** 방을 고르면 메인 캐릭터가 그 방으로 이동하고, 도착하면 상세 패널(또는 첫 만남 대화)이 열린다. */
+  /** 방을 고르면 메인 캐릭터가 그 방으로 이동하고, 도착하면 상세 패널이 열린다. */
   private selectRoom(room: FacilityRoom | null, tapX = GAME_WIDTH / 2): void {
-    // 아직 갈 수 없는 층: 위층부터 차례로 확보해야 한다.
-    if (room && room.rect.facility.floor > this.secured + 1) {
-      this.showBanner('위층부터 차례로 확보해야 합니다');
-      return;
-    }
-
     // 같은 방을 다시 누르면 닫는다.
     const next = room === this.selectedRoom ? null : room;
     this.selectedRoom?.setSelected(false);
@@ -245,140 +261,40 @@ export class BunkerScene extends Phaser.Scene {
     this.following = true;
 
     const token = this.visitToken;
-    const isFrontier = next.rect.facility.floor === this.secured + 1;
-    const worker = this.survivors.getSurvivorIn(next.rect.facility.type);
+    const type = next.rect.facility.type;
     this.player.travelTo({
       room: next.rect,
-      // 생존자가 있으면 그 옆으로, 없으면 누른 자리로 간다.
-      targetX: () => (worker ? worker.x + (this.player.x < worker.x ? -TALK_GAP : TALK_GAP) : tapX),
+      // 그 방에 생존자가 있으면 그 옆으로, 없으면 누른 자리로 간다.
+      targetX: () => {
+        const worker = this.survivors.getSurvivorIn(type);
+        return worker ? worker.x + (this.player.x < worker.x ? -TALK_GAP : TALK_GAP) : tapX;
+      },
       onArrive: () => {
-        if (token !== this.visitToken) return;
-        if (isFrontier && worker) this.startEncounter(next, worker);
-        else this.onPlayerArrive(next, worker);
+        if (token === this.visitToken) this.onPlayerArrive(next);
       },
     });
   }
 
-  /** 확보한 층에 도착: 패널을 열고, 그 층을 맡은 생존자와 한마디씩 주고받는다. */
-  private onPlayerArrive(room: FacilityRoom, worker: Survivor | undefined): void {
+  /** 방에 도착: 패널을 열고, 그 방을 맡은 생존자가 있으면 한마디씩 주고받는다. */
+  private onPlayerArrive(room: FacilityRoom): void {
     this.showPanel(room);
-    if (!worker) return;
-
     const token = this.visitToken;
     const player = this.player;
-    const story = STORY.find((s) => s.floor === room.rect.facility.floor);
+    const type = room.rect.facility.type;
+    const worker = this.survivors.getSurvivorIn(type);
+
+    if (!worker) {
+      const line = facilityStatus(type) === 'locked' ? '아직 쓸 수 없는 곳이군.' : '여긴 맡을 사람이 필요하겠어.';
+      this.playerBubble.say(player.x, player.y - player.height, line, 2400);
+      return;
+    }
     worker.talkTo(player.x, 5200);
     player.face(worker.x);
     this.talkingWith = worker;
     this.playerBubble.say(player.x, player.y - player.height, pick(PLAYER_GREETINGS), 1600);
     this.time.delayedCall(1700, () => {
-      if (token !== this.visitToken || !story) return;
-      this.npcBubble.say(worker.x, worker.y - worker.height, pick(story.lines), 3200);
-    });
-  }
-
-  /**
-   * 아직 확보하지 않은 층에 도착: 그 층에 있던 생존자와 처음 만난다.
-   * 대화 끝에 생존자가 부탁을 하고, 그 시설의 미니게임을 성공해야 동료가 된다.
-   */
-  private startEncounter(room: FacilityRoom, worker: Survivor): void {
-    const { facility } = room.rect;
-    const story = STORY.find((s) => s.floor === facility.floor);
-    if (!story) return;
-    worker.talkTo(this.player.x, Number.POSITIVE_INFINITY);
-    this.player.face(worker.x);
-
-    const request: StoryLine = { who: 'npc', text: story.request };
-    const lines = this.metFloors.has(facility.floor) ? [request] : [...story.encounter, request];
-    this.metFloors.add(facility.floor);
-
-    this.dialogue.play(
-      this.toEntries(lines, story.survivor.name),
-      () => {
-        this.minigame.play(MINIGAMES[facility.type], (success) => {
-          if (success) {
-            this.secureFloor(room, worker, story.secured);
-          } else {
-            // 그만두면 층은 그대로 미확보. 다시 찾아가면 다시 도전할 수 있다.
-            this.selectRoom(null);
-            this.showBanner('준비되면 다시 찾아가세요');
-          }
-        });
-      },
-      this.isRoomLow(room),
-    );
-  }
-
-  /** 생존자가 합류해 그 층을 맡는다 → 층 확보. 다음 층이 열린다. */
-  private secureFloor(room: FacilityRoom, worker: Survivor, notice: string): void {
-    this.secured = room.rect.facility.floor;
-    saveSecuredFloors(this.secured);
-    worker.endTalk();
-    this.spawnFrontier();
-    this.refreshRoomStates();
-    this.refreshSummary();
-
-    const { facility } = room.rect;
-    this.showBanner(`B${facility.floor} ${facility.name} 확보!`);
-    this.dialogue.play(
-      [{ speaker: '', text: notice }],
-      () => {
-        if (this.selectedRoom === room) this.showPanel(room);
-      },
-      this.isRoomLow(room),
-    );
-  }
-
-  /** 다음에 확보할 층에, 그 층의 생존자를 세워 둔다. (아직 동료가 아니라 제자리에서 기다린다) */
-  private spawnFrontier(): void {
-    const story = STORY.find((s) => s.floor === this.secured + 1);
-    if (!story) return;
-    this.survivors.add(story.survivor)?.wait();
-  }
-
-  private refreshRoomStates(): void {
-    for (const room of this.rooms) {
-      const floor = room.rect.facility.floor;
-      room.setState(floor <= this.secured ? 'active' : floor === this.secured + 1 ? 'frontier' : 'locked');
-    }
-  }
-
-  /** 상단 요약. 생존자 수 = 나 + 합류한 동료. (자원 수치는 아직 임시 데이터) */
-  private refreshSummary(): void {
-    this.resourceBar.setSummary({ ...MOCK_BUNKER_SUMMARY, survivors: 1 + this.secured });
-  }
-
-  private showPanel(room: FacilityRoom): void {
-    const { facility } = room.rect;
-    const placeTop = this.isRoomLow(room);
-    const workers = this.survivors.getWorkers(facility.type);
-    this.panel.show(facility, facility.floor <= this.secured ? workers : [], placeTop);
-  }
-
-  /** 화면이 다 따라간 뒤 이 방이 화면 아래쪽에 놓이는지. 그러면 패널·대화창을 위에 띄워 방이 가려지지 않게 한다. */
-  private isRoomLow(room: FacilityRoom): boolean {
-    const roomCenterY = room.rect.y + room.rect.h / 2;
-    const screenCenterY = roomCenterY + this.clampScroll(this.scrollToCenter(roomCenterY));
-    return screenCenterY > LAYOUT.contentTop + LAYOUT.contentHeight / 2 + 1;
-  }
-
-  private toEntries(lines: StoryLine[], npcName: string): DialogueEntry[] {
-    return lines.map((line) => ({
-      speaker: line.who === 'player' ? '나' : line.who === 'npc' ? npcName : '',
-      text: line.text,
-    }));
-  }
-
-  /** 화면 위쪽에 잠깐 뜨는 알림 */
-  private showBanner(text: string): void {
-    this.tweens.killTweensOf(this.banner);
-    this.banner.setText(text).setAlpha(1).setVisible(true);
-    this.tweens.add({
-      targets: this.banner,
-      alpha: 0,
-      delay: 1500,
-      duration: 500,
-      onComplete: () => this.banner.setVisible(false),
+      if (token !== this.visitToken || this.talkingWith !== worker) return;
+      this.npcBubble.say(worker.x, worker.y - worker.height, pick(worker.profile.lines ?? NORMAL_LINES), 3200);
     });
   }
 
@@ -392,14 +308,146 @@ export class BunkerScene extends Phaser.Scene {
     this.player.cancelArrival();
   }
 
+  // ───────── 패널 버튼 ─────────
+
+  /** 왼쪽 버튼: 잠긴 시설이면 개방(조건 확인 → 복구 작업 미니게임), 아니면 업그레이드 */
+  private pressPrimary(): void {
+    const room = this.selectedRoom;
+    if (!room) return;
+    const { type, name } = room.rect.facility;
+
+    if (facilityStatus(type) === 'locked') {
+      if (!canUnlock(type)) {
+        this.panel.notice('primary', '조건이 부족합니다');
+        return;
+      }
+      this.minigame.play(MINIGAMES[type], (success) => {
+        if (!success || !unlockFacility(type)) return;
+        this.showBanner(`${name} 개방!`);
+        this.refresh();
+        if (game.survivors.length === 0) {
+          this.dialogue.play(
+            [{ speaker: '', text: `${name}을(를) 개방했습니다. 시설은 맡을 사람이 있어야 가동됩니다. 아래 [탐험]에서 생존자를 찾아 데려온 뒤, 시설의 [생존자 배치]로 맡기세요.` }],
+            () => undefined,
+            this.isRoomLow(room),
+          );
+        }
+      });
+      return;
+    }
+
+    if (upgradeFacility(type)) {
+      this.showBanner(`${name} Lv.${game.facilityLevels[type]}`);
+      this.refresh();
+    } else {
+      const maxed = game.facilityLevels[type] >= MAX_FACILITY_LEVEL;
+      this.panel.notice('primary', maxed ? '최고 레벨입니다' : '철이 부족합니다');
+    }
+  }
+
+  /** 오른쪽 버튼: 이 시설을 맡을 생존자를 고른다. */
+  private pressAssign(): void {
+    const room = this.selectedRoom;
+    if (!room) return;
+    const { type } = room.rect.facility;
+    if (facilityStatus(type) === 'locked') {
+      this.panel.notice('assign', '먼저 개방하세요');
+      return;
+    }
+    openSurvivorPicker(type, () => {
+      this.syncSurvivors();
+      this.refresh();
+    });
+  }
+
+  // ───────── 화면 갱신 ─────────
+
+  /** 배치가 바뀌었을 때: 생존자 캐릭터를 다시 세운다. */
+  private syncSurvivors(): void {
+    this.npcBubble.hide();
+    this.talkingWith = null;
+    this.survivors.sync(game.survivors);
+  }
+
+  /** 게임 상태가 바뀌었을 때: 방 상태(잠김/운영 중지/가동), 상단 요약, 열려 있는 패널을 다시 그린다. */
+  private refresh(): void {
+    for (const room of this.rooms) room.setState(facilityStatus(room.rect.facility.type));
+    this.resourceBar.setSummary({
+      title: `${game.profile?.nickname ?? '대장'} Lv.${game.level}`,
+      level: game.level,
+      survivors: game.survivors.length,
+      survivorCapacity: capacity(),
+      // ⚠ 안정도는 아직 계산하지 않는 임시 숫자다.
+      stability: 80,
+      resources: game.resources,
+    });
+    if (this.selectedRoom && this.panel.isOpen) this.showPanel(this.selectedRoom, false);
+  }
+
+  private showPanel(room: FacilityRoom, animate = true): void {
+    const { facility } = room.rect;
+    const level = game.facilityLevels[facility.type];
+    const status = facilityStatus(facility.type);
+    this.panel.show(
+      {
+        facility,
+        level,
+        status,
+        conditions: unlockConditions(facility.type),
+        workers: workersIn(facility.type),
+        primaryText: this.primaryText(facility.type),
+      },
+      this.isRoomLow(room),
+      animate,
+    );
+  }
+
+  private primaryText(type: FacilityType): string {
+    const level = game.facilityLevels[type];
+    if (level <= 0) return '개방';
+    return level >= MAX_FACILITY_LEVEL ? '최고 레벨' : `업그레이드 (철 ${upgradeCost(level)})`;
+  }
+
+  /** 화면이 다 따라간 뒤 이 방이 화면 아래쪽에 놓이는지. 그러면 패널·대화창을 위에 띄워 방이 가려지지 않게 한다. */
+  private isRoomLow(room: FacilityRoom): boolean {
+    const roomCenterY = room.rect.y + room.rect.h / 2;
+    const screenCenterY = roomCenterY + this.clampScroll(this.scrollToCenter(roomCenterY));
+    return screenCenterY > LAYOUT.contentTop + LAYOUT.contentHeight / 2 + 1;
+  }
+
+  /** 화면 위쪽에 잠깐 뜨는 알림 */
+  private showBanner(text: string): void {
+    this.tweens.killTweensOf(this.banner);
+    this.banner.setText(text).setAlpha(1).setVisible(true);
+    this.tweens.add({
+      targets: this.banner,
+      alpha: 0,
+      delay: 1800,
+      duration: 500,
+      onComplete: () => this.banner.setVisible(false),
+    });
+  }
+
+  // ───────── 하단 메뉴 ─────────
+
   private selectMenu(id: MenuId): void {
+    // 탐험·생존자는 벙커 화면 위에 창으로 뜬다.
+    if (id === 'expedition') {
+      openExpeditionScreen(() => this.refresh());
+      return;
+    }
+    if (id === 'survivors') {
+      openSurvivorList(() => undefined);
+      return;
+    }
+
     this.activeMenu = id;
     this.bottomMenu.highlight(id);
 
     const isBunker = id === 'bunker';
     this.backdrop.setVisible(isBunker);
     this.bunkerLayer.setVisible(isBunker);
-    this.scrollHint.setVisible(isBunker && this.bunkerLayer.y === 0);
+    this.scrollHint.setVisible(isBunker && this.bunkerLayer.y === 0 && !this.selectedRoom);
     this.comingSoon.setVisible(!isBunker);
 
     if (!isBunker) {

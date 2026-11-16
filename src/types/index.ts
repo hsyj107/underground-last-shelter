@@ -16,6 +16,8 @@ export type FacilityType =
 
 /** 벙커 화면 상단에 표시되는 요약 정보 */
 export interface BunkerSummary {
+  /** 왼쪽 정보칸에 표시할 글 (예: "민수 Lv.3"). 없으면 "벙커 Lv.N" */
+  title?: string;
   level: number;
   survivors: number;
   survivorCapacity: number;
@@ -61,15 +63,28 @@ export type JobType =
   | 'mechanic'
   | 'researcher';
 
-/** 생존자 기본 정보 (1단계~2단계에서는 임시 데이터) */
+/** 생존자 한 명의 정보 */
 export interface SurvivorProfile {
   id: string;
   name: string;
   job: JobType;
-  /** 근무하는 시설 */
-  facility: FacilityType;
+  /** 배치된 시설. 아직 배치하지 않았으면 null (대기 중) */
+  facility: FacilityType | null;
   /** 캐릭터 그림 키 (assetManifest 의 CHARACTER_KEYS) */
   sprite: string;
   /** 한 줄 성격 소개 */
   trait: string;
+  /** 이름과 사연이 있는 특별한 생존자인지 (아니면 일반 생존자) */
+  named: boolean;
+  /** 잘 맞는 시설 (네임드 생존자). 효과는 이후 단계에서 연결한다. */
+  best?: FacilityType;
+  /** 대장이 들렀을 때 건네는 말 */
+  lines?: string[];
+}
+
+/** 내 메인 캐릭터 설정 */
+export interface PlayerProfile {
+  nickname: string;
+  gender: 'male' | 'female';
+  age: 'young' | 'middle' | 'senior';
 }

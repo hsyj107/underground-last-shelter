@@ -26,3 +26,207 @@ body {
 canvas {
   display: block;
 }
+
+/* ───────── 화면 위에 뜨는 창 (캐릭터 만들기 / 탐험 / 생존자) ───────── */
+.uls-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 5, 8, 0.82);
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  font-family: 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
+  color: #e8edf2;
+  touch-action: pan-y;
+}
+.uls-window {
+  width: 100%;
+  max-width: 460px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #151a21;
+  border: 2px solid #3a4048;
+  border-top: 4px solid #f2a93b;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+.uls-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid #2a3340;
+}
+.uls-title {
+  font-size: 19px;
+  font-weight: 700;
+  color: #f2a93b;
+}
+.uls-close {
+  background: none;
+  border: 0;
+  color: #8b98a7;
+  font-size: 30px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.uls-body {
+  padding: 14px 16px 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.uls-note {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #9aa5b1;
+  margin: 0 0 12px;
+}
+.uls-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #9aa5b1;
+  margin: 14px 0 6px;
+}
+.uls-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 12px;
+  font-size: 17px;
+  font-family: inherit;
+  color: #e8edf2;
+  background: #0b0e12;
+  border: 2px solid #3a4048;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.uls-input:focus {
+  border-color: #f2a93b;
+}
+.uls-choices {
+  display: flex;
+  gap: 8px;
+}
+.uls-choice {
+  flex: 1;
+  padding: 10px 4px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  color: #9aa5b1;
+  background: #0b0e12;
+  border: 2px solid #3a4048;
+  cursor: pointer;
+}
+.uls-choice.on {
+  color: #1a1206;
+  background: #f2a93b;
+  border-color: #ffd27a;
+}
+.uls-btn {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 13px;
+  font-size: 17px;
+  font-weight: 700;
+  font-family: inherit;
+  color: #1a1206;
+  background: #f2a93b;
+  border: 0;
+  border-top: 3px solid #ffd27a;
+  cursor: pointer;
+}
+.uls-btn:disabled {
+  color: #6b7480;
+  background: #252b33;
+  border-top-color: #3a4048;
+  cursor: default;
+}
+.uls-btn.small {
+  width: auto;
+  margin: 0;
+  padding: 9px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.uls-preview {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 150px;
+  margin-bottom: 4px;
+  background: linear-gradient(#0b0e12, #1c2129);
+  border: 1px solid #2a3340;
+}
+.uls-sprite {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.uls-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #0f1319;
+  border: 1px solid #2a3340;
+}
+.uls-card.dim {
+  opacity: 0.5;
+}
+.uls-card-main {
+  flex: 1;
+  min-width: 0;
+}
+.uls-card-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+.uls-card-sub {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #9aa5b1;
+  margin-top: 2px;
+}
+.uls-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1a1206;
+  background: #f2a93b;
+  vertical-align: 2px;
+}
+.uls-tag.gray {
+  color: #c9d1d9;
+  background: #3a4048;
+}
+.uls-good {
+  color: #6fcf6f;
+}
+.uls-warn {
+  color: #ff8a7a;
+}
+.uls-big {
+  font-size: 30px;
+  font-weight: 700;
+  text-align: center;
+  margin: 10px 0 4px;
+}
+.uls-center {
+  text-align: center;
+}
+.uls-quote {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  background: #0f1319;
+  border-left: 3px solid #f2a93b;
+}

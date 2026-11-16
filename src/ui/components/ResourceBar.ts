@@ -22,7 +22,7 @@ export class ResourceBar extends Phaser.GameObjects.Container {
     for (const res of VISIBLE_RESOURCES) {
       this.valueTexts.get(res.type)?.setText(summary.resources[res.type].toLocaleString('ko-KR'));
     }
-    this.levelText.setText(`벙커 Lv.${summary.level}`);
+    this.levelText.setText(summary.title ?? `벙커 Lv.${summary.level}`);
     this.survivorText.setText(`생존자 ${summary.survivors}/${summary.survivorCapacity}`);
     this.stabilityText.setText(`안정도 ${summary.stability}%`);
     this.stabilityText.setColor(summary.stability >= 50 ? TEXT_COLORS.good : TEXT_COLORS.warn);

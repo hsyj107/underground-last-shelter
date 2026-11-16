@@ -4,7 +4,7 @@ import { SHAFT_X, type RoomRect } from '../config/bunkerLayout';
 import { roomTextureKey } from '../art/registerArt';
 import { createText } from '../../ui/styles/theme';
 
-export type RoomState = 'active' | 'frontier' | 'locked';
+export type RoomState = 'active' | 'idle' | 'locked';
 
 const SELECT_COLOR = 0xf2a93b;
 /** 연출 효과(경고등 등) 스프라이트 배율 */
@@ -85,8 +85,8 @@ export class FacilityRoom {
   /**
    * 방 상태를 바꾼다.
    * - active: 맡은 생존자가 있어 가동 중 (불이 켜진다)
-   * - frontier: 다음에 확보할 층 (어둡고, 안에 누군가 있다)
-   * - locked: 아직 갈 수 없는 층 (더 어둡다)
+   * - idle: 개방했지만 맡은 사람이 없어 멈춰 있다 (어둡다)
+   * - locked: 아직 개방하지 않았다 (더 어둡다)
    */
   setState(state: RoomState): void {
     const active = state === 'active';
@@ -98,7 +98,7 @@ export class FacilityRoom {
     this.signPlate.setVisible(!active);
     this.signText.setVisible(!active);
     if (active) return;
-    this.signText.setText(state === 'frontier' ? '미확보 · 안에서 인기척이 난다' : '미확보 구역');
+    this.signText.setText(state === 'idle' ? '운영 중지 · 인원 없음' : '잠김');
     const w = Math.ceil(this.signText.width) + 12;
     this.signPlate.clear();
     this.signPlate.fillStyle(0x2a0f0d, 0.92).fillRect(0, 0, w, 18);
