@@ -48,7 +48,7 @@ export class BottomMenu extends Phaser.GameObjects.Container {
         .rectangle(cx, 1, cellW - 20, 4, COLORS.accent)
         .setOrigin(0.5, 0.5)
         .setVisible(false);
-      const icon = this.scene.add.image(cx, 38, item.iconKey).setDisplaySize(32, 32);
+      const icon = this.scene.add.image(cx, 38, item.iconKey).setDisplaySize(30, 30);
       const label = createText(this.scene, cx, 72, item.label, {
         size: 15,
         bold: true,

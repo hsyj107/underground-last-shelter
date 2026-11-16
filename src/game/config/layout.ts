@@ -6,11 +6,14 @@
 export const GAME_WIDTH = 540;
 export const GAME_HEIGHT = 960;
 
+/** 픽셀 아트 1칸이 화면에서 차지하는 크기(정수 배율 → 도트가 선명하게 유지된다) */
+export const PX = 3;
+
 export const LAYOUT = {
   topBarHeight: 120,
   bottomMenuHeight: 100,
   /** 지상(지표면) 영역 높이 */
-  surfaceHeight: 70,
+  surfaceHeight: 69,
   /** 벙커 층 사이드 여백 */
   floorMargin: 16,
   get contentTop(): number {

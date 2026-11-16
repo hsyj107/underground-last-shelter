@@ -2,17 +2,26 @@ import Phaser from 'phaser';
 import type { MenuId } from '../../types';
 import { MENU_ITEMS } from '../../data/menus';
 import { MOCK_BUNKER_SUMMARY } from '../../data/mockState';
-import { GAME_HEIGHT, GAME_WIDTH, LAYOUT } from '../config/layout';
+import { MOCK_SURVIVORS } from '../../data/mockSurvivors';
 import { BottomMenu } from '../../ui/components/BottomMenu';
-import { BunkerCrossSection } from '../../ui/components/BunkerCrossSection';
+import { FacilityPanel } from '../../ui/components/FacilityPanel';
 import { ResourceBar } from '../../ui/components/ResourceBar';
 import { COLORS, TEXT_COLORS, createText } from '../../ui/styles/theme';
+import { computeRoomRects } from '../config/bunkerLayout';
+import { GAME_HEIGHT, GAME_WIDTH, LAYOUT, PX } from '../config/layout';
+import { FacilityRoom } from '../entities/FacilityRoom';
+import { SurvivorSystem } from '../systems/SurvivorSystem';
 
-/** 메인 화면: 상단 자원바 + 중앙 벙커 영역 + 하단 메뉴 */
+/** 메인 화면: 상단 자원바 + 중앙 픽셀 아트 벙커 단면 + 하단 메뉴 */
 export class BunkerScene extends Phaser.Scene {
   private resourceBar!: ResourceBar;
   private bottomMenu!: BottomMenu;
-  private bunkerView!: BunkerCrossSection;
+  private panel!: FacilityPanel;
+  private bunkerLayer!: Phaser.GameObjects.Container;
+  private backgroundZone!: Phaser.GameObjects.Zone;
+  private rooms: FacilityRoom[] = [];
+  private survivors!: SurvivorSystem;
+  private selectedRoom: FacilityRoom | null = null;
   private comingSoon!: Phaser.GameObjects.Container;
   private comingSoonText!: Phaser.GameObjects.Text;
   private activeMenu: MenuId = 'bunker';
@@ -23,10 +32,10 @@ export class BunkerScene extends Phaser.Scene {
 
   create(): void {
     this.drawBackground();
-
-    this.bunkerView = new BunkerCrossSection(this);
+    this.createBunker();
     this.comingSoon = this.createComingSoonPanel();
 
+    this.panel = new FacilityPanel(this, () => this.selectRoom(null));
     this.resourceBar = new ResourceBar(this);
     this.bottomMenu = new BottomMenu(this, MENU_ITEMS, (id) => this.selectMenu(id));
 
@@ -35,13 +44,55 @@ export class BunkerScene extends Phaser.Scene {
     this.selectMenu('bunker');
   }
 
+  /** 암반 · 지상 · 시설 방 · 생존자를 한 레이어에 쌓는다 (추가한 순서대로 위에 그려진다). */
+  private createBunker(): void {
+    this.bunkerLayer = this.add.container(0, 0);
+    const layer = this.bunkerLayer;
+
+    layer.add(
+      this.add.image(0, LAYOUT.contentTop, 'env-rock').setOrigin(0, 0).setScale(PX),
+    );
+    layer.add(
+      this.add.image(0, LAYOUT.contentTop, 'env-surface').setOrigin(0, 0).setScale(PX),
+    );
+
+    // 빈 곳을 누르면 선택 해제
+    this.backgroundZone = this.add
+      .zone(GAME_WIDTH / 2, LAYOUT.contentTop + LAYOUT.contentHeight / 2, GAME_WIDTH, LAYOUT.contentHeight)
+      .setInteractive();
+    this.backgroundZone.on(Phaser.Input.Events.POINTER_DOWN, () => this.selectRoom(null));
+    layer.add(this.backgroundZone);
+
+    this.rooms = computeRoomRects().map((rect) => new FacilityRoom(this, rect, layer, (room) => this.selectRoom(room)));
+    this.survivors = new SurvivorSystem(this, this.rooms, layer, MOCK_SURVIVORS);
+    for (const room of this.rooms) room.addOverlay(layer);
+  }
+
+  private selectRoom(room: FacilityRoom | null): void {
+    // 같은 방을 다시 누르면 닫는다.
+    const next = room === this.selectedRoom ? null : room;
+    this.selectedRoom?.setSelected(false);
+    this.selectedRoom = next;
+
+    if (!next) {
+      this.panel.hide();
+      return;
+    }
+    next.setSelected(true);
+    const facility = next.rect.facility;
+    this.panel.show(facility, this.survivors.getWorkers(facility.type), facility.floor >= 3);
+  }
+
   private selectMenu(id: MenuId): void {
     this.activeMenu = id;
     this.bottomMenu.highlight(id);
 
     const isBunker = id === 'bunker';
-    this.bunkerView.setVisible(isBunker);
+    this.bunkerLayer.setVisible(isBunker);
     this.comingSoon.setVisible(!isBunker);
+    for (const room of this.rooms) room.setInputEnabled(isBunker);
+    if (this.backgroundZone.input) this.backgroundZone.input.enabled = isBunker;
+    if (!isBunker) this.selectRoom(null);
 
     if (!isBunker) {
       const item = MENU_ITEMS.find((m) => m.id === id);

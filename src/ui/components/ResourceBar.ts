@@ -41,7 +41,7 @@ export class ResourceBar extends Phaser.GameObjects.Container {
     const cellW = GAME_WIDTH / VISIBLE_RESOURCES.length;
     VISIBLE_RESOURCES.forEach((res, i) => {
       const x = cellW * i;
-      const icon = this.scene.add.image(x + 26, 36, res.iconKey).setDisplaySize(28, 28);
+      const icon = this.scene.add.image(x + 26, 36, res.iconKey).setDisplaySize(30, 30);
       const label = createText(this.scene, x + 46, 14, res.label, { size: 12, color: TEXT_COLORS.sub });
       const value = createText(this.scene, x + 46, 30, '0', { size: 20, bold: true });
       this.valueTexts.set(res.type, value);

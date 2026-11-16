@@ -44,6 +44,7 @@ npm run dev
 src/
   game/config/   해상도·레이아웃·에셋 목록·게임 설정
   game/scenes/   Boot → Preload → Bunker 화면
+  art/           픽셀 아트를 코드로 그리는 모듈 (방, 생존자, 아이콘, 지상) — Phaser와 무관
   ui/            상단 자원바, 하단 메뉴, 벙커 단면 컴포넌트
   data/          시설·자원·메뉴 정의, 임시(mock) 데이터
   types/         공용 타입

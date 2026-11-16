@@ -50,3 +50,14 @@ export interface FacilityDef {
   /** 임시 표시 색상 (픽셀 아트로 교체되면 사용하지 않음) */
   color: number;
 }
+
+export type JobType = 'engineer' | 'medic' | 'farmer' | 'scout' | 'guard';
+
+/** 생존자 기본 정보 (1단계~2단계에서는 임시 데이터) */
+export interface SurvivorProfile {
+  id: string;
+  name: string;
+  job: JobType;
+  /** 근무하는 시설 */
+  facility: FacilityType;
+}

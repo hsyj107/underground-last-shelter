@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { ASSET_MANIFEST, type AssetEntry } from '../config/assetManifest';
 import { GAME_HEIGHT, GAME_WIDTH } from '../config/layout';
 import { COLORS, TEXT_COLORS, createText } from '../../ui/styles/theme';
+import { registerArt } from '../art/registerArt';
 
 /** 에셋 로딩 + 임시 도형(placeholder) 생성 */
 export class PreloadScene extends Phaser.Scene {
@@ -26,6 +27,9 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   create(): void {
+    // 코드로 그린 픽셀 아트(아이콘/방/생존자/효과)를 텍스처로 등록한다.
+    registerArt(this);
+
     for (const asset of ASSET_MANIFEST) {
       if (this.textures.exists(asset.key)) {
         // 실제 픽셀 아트는 선명하게(도트 유지) 표시한다.
