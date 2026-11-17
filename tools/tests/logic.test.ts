@@ -467,7 +467,7 @@ test('관계: 친구가 죽으면 남은 친구는 충격을 받는다', () => {
 test('플레이어 만들기: 직업 범위와 출신 보정으로 능력치가 굴려진다', () => {
   g.setRng(Math.random);
   for (const o of ORIGINS) {
-    for (const j of JOBS) {
+    for (const j of JOBS.filter((x) => g.validCombo(o.id, x.id))) {
       for (let i = 0; i < 40; i++) {
         const st = g.rollStats(o.id, j.id);
         for (const k of ['str', 'agi', 'med', 'cha'] as const) {
@@ -486,16 +486,18 @@ test('플레이어 만들기: 직업 범위와 출신 보정으로 능력치가 
 });
 
 test('플레이어 만들기: 출신과 직업의 시작 보너스, 이름·외형이 반영된다', () => {
-  const cr: g.Creation = { gender: 'f', origin: 'tenant', job: 'engineer', look: { ...g.defaultCreation().look, skin: '#b88860' }, stats: { str: 3, agi: 6, med: 2, cha: 4 } };
+  const cr: g.Creation = { gender: 'f', origin: 'tenant', job: 'merchant', look: { ...g.defaultCreation().look, skin: '#b88860' }, stats: { str: 3, agi: 6, med: 2, cha: 4 } };
   const s = g.newState('  한서  ', 0, cr);
   assert.equal(s.player.name, '한서');
-  assert.equal(s.caps, 40); // 입점 상인 +20
+  assert.equal(s.caps, 80); // 기본 20 + 입점 상인 20 + 영업·상인 40
   assert.equal(s.res.food, 80); // +20
-  assert.equal(s.upg.farm, 1); // 기술자
   assert.equal(SURV_BY_ID.me.name, '한서');
   assert.equal(SURV_BY_ID.me.look.skin, '#b88860');
   assert.equal(SURV_BY_ID.me.stats.agi, 6);
-  assert.equal(SURV_BY_ID.me.title, '입점 상인 · 기술자');
+  assert.equal(SURV_BY_ID.me.title, '입점 상인 · 편의점 점주');
+  const eng = g.newState('b', 0, { ...cr, origin: 'staff', job: 'engineer' });
+  assert.equal(eng.upg.farm, 1); // 기술자는 수경재배 Lv1로 시작
+  assert.equal(eng.res.water, 90); // 시설 관리직원 +30
   const empty = g.newState('', 0, cr);
   assert.equal(empty.player.name, '관리자');
 });
@@ -516,9 +518,26 @@ test('플레이어 능력치는 탐사에 반영된다 (전투→위험, 의료�
 });
 
 test('저장 불러오기 시 플레이어 정보가 유지되고 레지스트리가 복원된다', () => {
-  const cr: g.Creation = { gender: 'm', origin: 'staff', job: 'merchant', look: g.defaultCreation().look, stats: { str: 2, agi: 2, med: 2, cha: 8 } };
+  const cr: g.Creation = { gender: 'm', origin: 'staff', job: 'engineer', look: g.defaultCreation().look, stats: { str: 2, agi: 2, med: 2, cha: 8 } };
   const s = g.newState('도윤', 0, cr);
   const json = JSON.parse(JSON.stringify(s));
   assert.equal(json.player.name, '도윤');
   assert.equal(json.player.stats.cha, 8);
+});
+
+test('출신에 맞는 직업만 고를 수 있다', () => {
+  assert.ok(g.validCombo('tenant', 'merchant'));
+  assert.ok(g.validCombo('tenant', 'medic')); // 입점 약국 약사
+  assert.ok(!g.validCombo('tenant', 'soldier'));
+  assert.ok(!g.validCombo('guard', 'medic'));
+  assert.ok(!g.validCombo('staff', 'merchant'));
+  assert.equal(JOBS.filter((j) => g.validCombo('shopper', j.id)).length, 5);
+  for (const o of ORIGINS) {
+    assert.ok(g.validCombo(o.id, g.defaultCreation().origin === o.id ? g.defaultCreation().job : Object.keys(o.jobs)[0]));
+    for (const [jid, c] of Object.entries(o.jobs)) {
+      assert.ok(JOBS.some((j) => j.id === jid), `${o.id}: 없는 직업 ${jid}`);
+      assert.ok(c.title && c.blurb);
+    }
+  }
+  assert.ok(g.validCombo(g.defaultCreation().origin, g.defaultCreation().job));
 });

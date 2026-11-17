@@ -4,8 +4,9 @@ import {
   CAT_ORDER,
   CHAPTER_AFF,
   GENDERS,
-  JOBS,
   JOB_BY_ID,
+  jobTitle,
+  jobsOf,
   LOOK_OPTS,
   NAME_POOL,
   ORIGINS,
@@ -597,10 +598,13 @@ function renderCreate(): void {
       ).join('')}</div>`;
   } else if (cc.step === 1) {
     body = `<h2>하던 일</h2>
-      <p class="dim sm">직업에 따라 능력치가 굴려지는 범위와 시작 물자가 달라져요. 출신 보정은 그 위에 더해집니다.</p>
-      <div class="opts">${JOBS.map(
-        (j) => `<button class="opt ${cc.job === j.id ? 'on' : ''}" data-act="cc-job" data-id="${j.id}"><i>${j.icon}</i><span><b>${j.name}</b><small>${j.blurb}</small><em>${j.perk}</em></span></button>`,
-      ).join('')}</div>`;
+      <p class="dim sm">${ORIGIN_BY_ID[cc.origin].icon} ${ORIGIN_BY_ID[cc.origin].name} 중에서 고를 수 있는 일이에요. 직업에 따라 능력치가 굴려지는 범위와 시작 물자가 달라지고, 출신 보정은 그 위에 더해집니다.</p>
+      <div class="opts">${jobsOf(cc.origin)
+        .map((j) => {
+          const c = ORIGIN_BY_ID[cc.origin].jobs[j.id];
+          return `<button class="opt ${cc.job === j.id ? 'on' : ''}" data-act="cc-job" data-id="${j.id}"><i>${j.icon}</i><span><b>${c.title}</b><small>${c.blurb}</small><em>${j.perk}</em></span></button>`;
+        })
+        .join('')}</div>`;
   } else if (cc.step === 2) {
     const sw = (act: string, list: string[], cur: string): string =>
       list.map((c) => `<button class="sw ${cur === c ? 'on' : ''}" style="background:${c}" data-act="${act}" data-id="${c}" aria-label="${c}"></button>`).join('');
@@ -621,7 +625,8 @@ function renderCreate(): void {
     next = '이 사람으로 시작';
     body = `<h2>${cc.name || '관리자'}</h2>
       <div class="cc-prev"><img class="pt lg" src="${lookPortraitURL(ccLook())}" alt=""></div>
-      <p class="story sm">${o.icon} ${o.name} · ${j.icon} ${j.name}</p>
+      <p class="story sm">${o.icon} ${o.name} · ${j.icon} ${jobTitle(cc.origin, cc.job)}</p>
+      <p class="dim sm">${o.jobs[cc.job].blurb}</p>
       <div class="stats-roll">${statBars(cc.stats, cc.origin, cc.job)}</div>
       <p class="dim sm">능력치는 직업·출신 범위 안에서 무작위로 정해져요. 마음에 안 들면 다시 굴릴 수 있어요 (${cc.rerolls}번 남음).</p>
       <button class="btn wide" data-act="cc-roll" ${cc.rerolls > 0 ? '' : 'disabled'}>🎲 다시 굴리기</button>
@@ -843,6 +848,7 @@ function onClick(e: Event): void {
       break;
     case 'cc-origin':
       cc.origin = id;
+      if (!jobsOf(id).some((j) => j.id === cc.job)) cc.job = jobsOf(id)[0].id;
       cc.stats = null;
       cc.rerolls = 2;
       renderCreate();

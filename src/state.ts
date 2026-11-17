@@ -136,6 +136,11 @@ export function rollStats(originId: string, jobId: string): Stats {
   return out;
 }
 
+/** 출신과 직업이 어울리는 조합인지 */
+export function validCombo(originId: string, jobId: string): boolean {
+  return !!ORIGIN_BY_ID[originId]?.jobs[jobId];
+}
+
 export function defaultCreation(): Creation {
   const look: Look = { ...PLAYER.look, acc: ORIGIN_BY_ID.tenant.acc.slice() };
   return { gender: 'm', origin: 'tenant', job: 'clerk', look, stats: rollStats('tenant', 'clerk') };

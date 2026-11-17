@@ -282,21 +282,45 @@ export interface Origin {
   start: Start;
   perk: string;
   acc: string[];
+  /** 이 출신이 가질 수 있는 직업과, 그 조합에서의 구체적인 직함·설명 */
+  jobs: Record<string, { title: string; blurb: string }>;
 }
 
 export const ORIGINS: Origin[] = [
   { id: 'tenant', name: '입점 상인', icon: '🏪', acc: ['vest'],
-    blurb: '지하 7층 편의점에서 야간 근무를 하던 중이었다. 셔터 열쇠와 매장 재고가 손에 있었다. 이 층에서 가장 먼저 문을 걸어 잠근 사람이다.',
-    bonus: { cha: 1 }, start: { food: 20, caps: 20 }, perk: '매력 +1 · 시작 식량 +20 · 뚜껑 +20' },
+    blurb: '이 층에 입점한 가게 사람이었다. 셔터 열쇠와 매장 재고가 손에 있었다. 이 층에서 가장 먼저 문을 걸어 잠근 사람이다.',
+    bonus: { cha: 1 }, start: { food: 20, caps: 20 }, perk: '매력 +1 · 시작 식량 +20 · 뚜껑 +20',
+    jobs: {
+      merchant: { title: '편의점 점주', blurb: '지하 7층 편의점의 주인이었다. 매출보다 재고 숫자를 더 자주 세던 사람. 손님과 흥정하는 일이라면 누구보다 능숙하다.' },
+      medic: { title: '입점 약국 약사', blurb: '같은 층 약국의 약사였다. 처방전보다 먼저 사람 얼굴을 보던 습관이 있고, 약 서랍 열쇠가 아직 주머니에 있다.' },
+      clerk: { title: '편의점 야간 직원', blurb: '편의점 야간 근무자였다. 유통기한과 재고 정리가 몸에 익은 평범한 사람. 눈에 띄진 않아도 쉽게 무너지지 않는다.' },
+    } },
   { id: 'staff', name: '시설 관리직원', icon: '🔧', acc: ['cap'],
     blurb: '건물 설비팀이었다. 정수 탱크, 비상 발전기, 배관 도면의 위치를 몸으로 안다. 마스터키 한 뭉치가 허리춤에서 짤랑거린다.',
-    bonus: { str: 1 }, start: { water: 30 }, perk: '전투 +1 · 시작 식수 +30' },
+    bonus: { str: 1 }, start: { water: 30 }, perk: '전투 +1 · 시작 식수 +30',
+    jobs: {
+      engineer: { title: '설비 기사', blurb: '정수 탱크와 비상 발전기를 관리하던 설비팀 기사. 배관 도면이 머릿속에 들어 있다. 망가진 건 고치면 된다. 사람만 빼고.' },
+      medic: { title: '건물 의무실 간호사', blurb: '건물 의무실에서 일하던 간호사. 이 건물 직원들의 병력을 대부분 안다. 응급 상자의 위치도.' },
+      clerk: { title: '관리사무소 직원', blurb: '관리사무소에서 입주사 민원과 출입 기록을 맡았다. 이 건물에 누가 있었는지 가장 잘 아는 사람.' },
+    } },
   { id: 'guard', name: '보안 요원', icon: '🛡', acc: [],
     blurb: '야간 순찰 중이었다. 진압봉과 무전기, 그리고 사람들이 몰려오는 순간 문을 닫아야 했던 기억이 남았다. 누구를 들였고 누구를 못 들였는지, 전부 기억한다.',
-    bonus: { str: 2 }, start: {}, perk: '전투 +2' },
+    bonus: { str: 2 }, start: {}, perk: '전투 +2',
+    jobs: {
+      soldier: { title: '군 출신 경비', blurb: '군에서 전역한 뒤 이곳 보안을 맡았다. 명령을 받고 내리는 데 익숙하고, 위기에서 몸이 먼저 판단한다.' },
+      engineer: { title: '보안 설비 기사', blurb: 'CCTV와 출입 통제 시스템을 유지하던 보안 기술자. 어디가 뚫릴 수 있는지 누구보다 잘 안다.' },
+      clerk: { title: '관제실 요원', blurb: '모니터 앞에서 밤을 새던 관제 요원. 건물 전체의 움직임을 화면으로만 봐 왔다. 이제는 화면 밖에 서 있다.' },
+    } },
   { id: 'shopper', name: '쇼핑 온 시민', icon: '🛍', acc: [],
     blurb: '그날은 그냥 장을 보러 내려온 평범한 사람이었다. 가진 건 장바구니와 가방 속 상비약뿐이지만, 얽매인 것도 없다.',
-    bonus: {}, start: { caps: 60, med: 10 }, perk: '시작 뚜껑 +60 · 의약품 +10' },
+    bonus: {}, start: { caps: 60, med: 10 }, perk: '시작 뚜껑 +60 · 의약품 +10',
+    jobs: {
+      medic: { title: '병원 근무자', blurb: '쉬는 날 장을 보러 내려온 병원 근무자였다. 근무복은 없어도 다친 사람 앞에서 손이 먼저 움직인다.' },
+      engineer: { title: '엔지니어', blurb: '휴일에 장 보러 나온 엔지니어였다. 가방 속 공구는 없지만, 망가진 걸 보면 고칠 방법부터 떠올린다.' },
+      soldier: { title: '퇴직 경찰', blurb: '퇴직한 경찰이었다. 이제는 장바구니를 든 시민일 뿐인데, 몸은 아직 위험을 먼저 본다.' },
+      merchant: { title: '영업사원', blurb: '외근 중에 들른 영업사원이었다. 사람을 만나 설득하고 값을 맞추는 일이 업이었다.' },
+      clerk: { title: '회사원', blurb: '퇴근길에 장을 보러 온 회사원이었다. 튀지 않고 성실하게 살아서, 이 상황에서도 크게 무너지지 않는다.' },
+    } },
 ];
 
 /** 직업: 사태 전에 하던 일. 능력치 굴림의 범위를 정한다 */
@@ -328,6 +352,15 @@ export const JOBS: Job[] = [
     range: { str: [2, 4], agi: [2, 4], med: [2, 4], cha: [2, 4] }, start: { food: 15, water: 15 }, perk: '고르게 2~4 · 시작 식량·식수 +15',
     chat: ['일단 표로 정리해 봅시다.', '재고 파악이 먼저예요.', '숫자는 정직하다. 사람이 문제지.']},
 ];
+
+/** 출신에 맞는 직업 목록 (정의된 순서) */
+export function jobsOf(originId: string): Job[] {
+  const o = ORIGINS.find((x) => x.id === originId);
+  return o ? JOBS.filter((j) => j.id in o.jobs) : [];
+}
+export function jobTitle(originId: string, jobId: string): string {
+  return ORIGINS.find((x) => x.id === originId)?.jobs[jobId]?.title ?? JOBS.find((j) => j.id === jobId)?.name ?? '';
+}
 
 export const ORIGIN_BY_ID: Record<string, Origin> = Object.fromEntries(ORIGINS.map((o) => [o.id, o]));
 export const JOB_BY_ID: Record<string, Job> = Object.fromEntries(JOBS.map((j) => [j.id, j]));
@@ -543,7 +576,7 @@ export function registerPlayer(p: PlayerInfo): void {
   SURV_BY_ID.me = {
     ...PLAYER,
     name: p.name,
-    title: `${o?.name ?? ''} · ${j?.name ?? ''}`,
+    title: `${o?.name ?? ''} · ${jobTitle(p.origin, p.job)}`,
     look: p.look,
     stats: p.stats,
     power: 1 + Math.floor((p.stats.str - 1) / 3.5),
