@@ -1280,7 +1280,12 @@ export function loadState(): State | null {
     const st = { ...base, ...d, upg: { ...base.upg, ...(d.upg ?? {}) }, stats: { ...base.stats, ...(d.stats ?? {}) }, log: { ...base.log, ...(d.log ?? {}) }, rep: { ...base.rep, ...(d.rep ?? {}) } } as State;
     resetRegistry();
     registerPlayer(st.player);
-    for (const p of Object.values(st.people)) registerPerson(p);
+    for (const p of Object.values(st.people)) {
+      // 직업 옷 색을 바꿔도 이미 저장된 사람에게 반영되도록 맞춘다
+      const pr = PROF_BY_ID[p.prof];
+      if (pr && !p.look.cat) p.look = { ...p.look, top: pr.look.top, top2: pr.look.top2, pants: pr.look.pants, shoes: pr.look.shoes };
+      registerPerson(p);
+    }
     return st;
   } catch {
     return null;
