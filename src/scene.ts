@@ -65,7 +65,7 @@ interface Particle {
   vy: number;
   life: number;
   max: number;
-  kind: 'heart' | 'spark';
+  kind: 'heart' | 'spark' | 'plus';
   color: string;
 }
 
@@ -246,7 +246,7 @@ export class Scene {
     for (const w of this.walkers.values()) {
       const gi = guards.indexOf(w.id);
       const wi = workers.indexOf(w.id);
-      w.post = gi >= 0 ? { x: 30 + gi * 15, face: -1, kind: 'guard' } : wi >= 0 ? { x: 84 + (wi % 4) * 17, face: wi % 2 ? 1 : -1, kind: 'work' } : null;
+      w.post = gi >= 0 ? { x: 30 + gi * 15, face: -1, kind: 'guard' } : wi >= 0 ? { x: [106, 121, 136, 92][wi % 4], face: wi % 2 ? 1 : -1, kind: 'work' } : null;
     }
     // 일하는 곳에서 생산하는 느낌: 잎사귀와 물방울
     this.workT -= dt;
@@ -254,18 +254,20 @@ export class Scene {
       this.workT = 0.9 / Math.min(3, workers.length);
       const farm = this.rand() < 0.6;
       this.particles.push({
-        x: farm ? 112 + this.rand() * 22 : 146 + this.rand() * 4,
-        y: farm ? 143 : 146,
+        x: farm ? 104 + this.rand() * 34 : 148 + this.rand() * 6,
+        y: farm ? 138 : 148,
         vx: (this.rand() - 0.5) * 6,
         vy: -8 - this.rand() * 6,
         life: 0,
         max: 0.8,
-        kind: 'spark',
+        kind: farm ? 'plus' : 'spark',
         color: farm ? '#8ee06a' : '#6ec6ff',
       });
     }
     for (const w of this.walkers.values()) {
       if (w.post) {
+        // 일꾼은 밭 뒤쪽 줄로 올라선다
+        if (w.post.kind === 'work') w.lane += Math.max(-30 * dt, Math.min(30 * dt, 149 - w.lane));
         const d = w.post.x - w.x;
         if (Math.abs(d) < 1) {
           w.moving = false;
@@ -393,31 +395,135 @@ export class Scene {
     }
   }
 
-  /** 생산조가 있을 때만 보이는 작은 밭과 정수 통 */
+  /** 생산조가 있을 때만 보이는 수경재배 밭, 정수 탱크, 수확 상자 */
   private drawStations(ctx: CanvasRenderingContext2D, m: SceneModel): void {
+    this.stationsBack(ctx, m);
+  }
+
+  /** 사람 위에 덧그리는 밭 앞면: 일꾼이 밭 뒤에서 일하는 것처럼 보이게 한다 */
+  private drawStationsFront(ctx: CanvasRenderingContext2D, m: SceneModel): void {
     const n = m.present.filter((id) => m.roles[id] === 'work').length;
     if (!n) return;
-    ctx.fillStyle = '#2b1d14';
-    ctx.fillRect(108, 146, 34, 7);
-    ctx.fillStyle = '#5a4030';
-    ctx.fillRect(109, 147, 32, 4);
-    for (let i = 0; i < 7; i++) {
-      const h = 2 + ((Math.floor(this.t * 0.8) + i * 3) % 5);
-      ctx.fillStyle = '#4f9a3c';
-      ctx.fillRect(111 + i * 4, 146 - h, 1, h);
-      ctx.fillStyle = '#8ee06a';
-      ctx.fillRect(110 + i * 4, 146 - h, 3, 1);
+    const R = (x: number, y: number, w: number, h: number, c: string): void => {
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, w, h);
+    };
+    R(100, 146, 42, 1, '#a8a8b6');
+    R(100, 147, 42, 4, '#585866');
+    R(100, 147, 42, 1, '#74748a');
+    R(100, 151, 42, 2, '#2b2b34');
+    R(100, 147, 1, 6, '#74748a');
+    R(141, 147, 1, 6, '#3a3a46');
+    const plants = Math.min(9, 4 + n * 2);
+    for (let i = 0; i < plants; i += 2) {
+      const px = 104 + i * 4;
+      R(px - 1, 144, 3, 2, '#58b83c');
+      R(px, 143, 2, 1, '#8ee06a');
     }
-    ctx.fillStyle = '#3a4a5a';
-    ctx.fillRect(144, 134, 10, 18);
-    ctx.fillStyle = '#6ec6ff';
-    ctx.fillRect(146, 136, 6, 3);
-    ctx.fillStyle = '#2b2b30';
-    ctx.fillRect(147, 152, 4, 1);
-    if (Math.floor(this.t * 2) % 2 === 0) {
-      ctx.fillStyle = '#6ec6ff';
-      ctx.fillRect(148, 153, 1, 2);
+  }
+
+  private stationsBack(ctx: CanvasRenderingContext2D, m: SceneModel): void {
+    const n = m.present.filter((id) => m.roles[id] === 'work').length;
+    if (!n) return;
+    const t = this.t;
+    const R = (x: number, y: number, w: number, h: number, c: string): void => {
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, w, h);
+    };
+    const pulse = 0.85 + 0.15 * Math.sin(t * 3);
+
+    // --- 재배등 빛 번짐 (위층과 아래층 모두 분홍빛이 퍼진다)
+    const cone = (y0: number, y1: number): void => {
+      for (let y = y0; y < y1; y++) {
+        const spread = Math.floor((y - y0) * 0.3);
+        ctx.fillStyle = `rgba(255,130,255,${(0.09 + (y - y0) * 0.004) * pulse})`;
+        ctx.fillRect(102 - spread, y, 38 + spread * 2, 1);
+      }
+    };
+    cone(97, 111);
+    cone(121, 143);
+    // --- 선반 틀: 2단 수경재배
+    R(100, 94, 2, 59, '#2f2f38');
+    R(100, 94, 1, 59, '#50505c');
+    R(140, 94, 2, 59, '#2f2f38');
+    R(140, 94, 1, 59, '#50505c');
+    for (const ly of [94, 118]) {
+      R(98, ly, 46, 3, '#3a3a46');
+      R(98, ly, 46, 1, '#5a5a68');
+      R(100, ly + 3, 42, 1, pulse > 0.95 ? '#ffd0ff' : '#ff9aff');
     }
+    // 위층 트레이
+    R(100, 113, 42, 1, '#70707e');
+    R(100, 114, 42, 3, '#585866');
+    R(100, 117, 42, 1, '#2b2b34');
+    R(101, 111, 40, 2, '#4a3322');
+    // 아래층 흙 (앞면은 사람 위에 따로 덧그린다)
+    R(100, 141, 42, 1, '#70707e');
+    R(101, 142, 40, 4, '#4a3322');
+    for (let i = 0; i < 18; i++) R(103 + ((i * 7) % 36), 142 + (i % 4), 1, 1, '#33241a');
+    // --- 작물: 시간이 지나면 자라고 다 크면 열매가 열린다
+    const plants = Math.min(9, 4 + n * 2);
+    const row = (root: number, phase: number, maxH: number): void => {
+      for (let i = 0; i < plants; i++) {
+        const px = 104 + i * 4;
+        const stage = (Math.floor(t * 0.45) + i * 2 + phase) % 8;
+        const h = Math.min(maxH, 3 + stage);
+        const sway = Math.floor(t * 1.5 + i) % 4 === 0 ? 1 : 0;
+        R(px, root - h, 1, h, '#3f8a34');
+        if (h >= 5) {
+          R(px - 2 + sway, root - h + 2, 2, 2, '#6fcf4a');
+          R(px + 1 + sway, root - h + 4, 2, 2, '#58b83c');
+        }
+        if (h >= 8) {
+          R(px - 1 + sway, root - h, 3, 2, '#8ee06a');
+          if (i % 3 === 0) {
+            R(px + 1, root - h + 5, 2, 2, '#e0503a');
+            R(px + 1, root - h + 5, 1, 1, '#ff9a8a');
+          }
+        }
+      }
+    };
+    row(111, 3, 10);
+    row(145, 0, 11);
+    // --- 수확 상자 (일하는 사람이 많을수록 가득 찬다)
+    R(84, 142, 14, 10, '#7a5a34');
+    R(84, 142, 14, 2, '#9a7444');
+    R(84, 148, 14, 1, '#5a4024');
+    R(84, 142, 1, 10, '#5a4024');
+    R(97, 142, 1, 10, '#5a4024');
+    const filled = Math.min(5, 2 + n);
+    for (let i = 0; i < filled; i++) {
+      R(85 + i * 2 + (i % 2), 140 - (i % 2), 3, 3, i % 3 === 0 ? '#e0503a' : '#6fcf4a');
+      R(85 + i * 2 + (i % 2), 140 - (i % 2), 1, 1, '#c8f0a0');
+    }
+
+    // --- 정수 탱크
+    R(145, 124, 13, 3, '#2f3a46');
+    R(145, 127, 13, 25, '#5a6a7a');
+    R(145, 127, 2, 25, '#8aa0b4');
+    R(156, 127, 2, 25, '#3a4654');
+    R(145, 135, 13, 1, '#3a4654');
+    R(145, 144, 13, 1, '#3a4654');
+    R(148, 129, 7, 8, '#223040');
+    const lvl = 2 + Math.floor(3 + 2 * Math.sin(t * 1.2));
+    R(148, 137 - lvl, 7, lvl, '#6ec6ff');
+    R(148, 137 - lvl, 7, 1, '#bfe8ff');
+    R(148, 129, 1, 8, '#3f4f60');
+    for (let b = 0; b < 2; b++) {
+      const by = 136 - ((Math.floor(t * 6) + b * 3) % Math.max(2, lvl));
+      R(150 + b * 3, by, 1, 1, '#ffffff');
+    }
+    R(150, 125, 3, 1, Math.floor(t * 2) % 2 === 0 ? '#6aff8a' : '#2a6a3a');
+    // 배관과 수도꼭지, 물받이 통
+    R(142, 148, 4, 2, '#7a8a9a');
+    R(148, 150, 5, 2, '#7a8a9a');
+    R(150, 152, 2, 2, '#7a8a9a');
+    const drip = Math.floor(t * 3) % 3;
+    R(151, 154 + drip, 1, 2, '#6ec6ff');
+    R(147, 157, 8, 5, '#6a6a74');
+    R(147, 157, 8, 1, '#8a8a96');
+    R(148, 158, 6, 1, '#6ec6ff');
+    R(147, 161, 8, 1, '#3a3a44');
   }
 
   private drawStore(ctx: CanvasRenderingContext2D, m: SceneModel): void {
@@ -553,6 +659,8 @@ export class Scene {
   private drawEntities(ctx: CanvasRenderingContext2D, m: SceneModel): void {
     type E = { y: number; draw: () => void };
     const list: E[] = [];
+    /** 일하는 도구는 옆 사람 몸에 가리지 않게 맨 위에 덧그린다 */
+    const tools: (() => void)[] = [];
     for (const w of this.walkers.values()) {
       const d = SURV_BY_ID[w.id];
       if (!d) continue;
@@ -579,12 +687,34 @@ export class Scene {
                 ctx.fillRect(px - 1, w.lane - personHeight(d.look) - 5, 3, 3);
               }
             } else if (working) {
-              // 호미질
               const sw = Math.floor(this.t * 3 + w.seed) % 2;
-              ctx.fillStyle = '#8a6d4b';
-              ctx.fillRect(px + fx * 8 - (fx < 0 ? 1 : 0), w.lane - 14 + sw * 2, 1, 10);
-              ctx.fillStyle = '#b8b0a0';
-              ctx.fillRect(px + fx * 8 - (fx < 0 ? 3 : 0), w.lane - 5 + sw * 2, 3, 1);
+              const hx = px + fx * 9;
+              tools.push(() => {
+              if (w.post?.face === 1) {
+                // 물뿌리개: 기울이면 물이 쏟아진다
+                const bx = hx - (fx < 0 ? 5 : 0);
+                ctx.fillStyle = '#4a8ac8';
+                ctx.fillRect(bx, w.lane - 12, 6, 4);
+                ctx.fillStyle = '#7ab4e8';
+                ctx.fillRect(bx, w.lane - 12, 6, 1);
+                ctx.fillStyle = '#2f5a8a';
+                ctx.fillRect(bx, w.lane - 9, 6, 1);
+                const sx = fx > 0 ? bx + 6 : bx - 4;
+                ctx.fillStyle = '#4a8ac8';
+                ctx.fillRect(sx, w.lane - 13 - (sw ? 1 : 0), 4, 1);
+                ctx.fillStyle = '#9ad4ff';
+                const ex = fx > 0 ? sx + 4 : sx - 1;
+                for (let k = 0; k < 3; k++) ctx.fillRect(ex, w.lane - 12 + ((Math.floor(this.t * 9) + k * 2) % 7), 1, 2);
+              } else {
+                // 호미질
+                ctx.fillStyle = '#8a6d4b';
+                ctx.fillRect(hx - (fx < 0 ? 1 : 0), w.lane - 20 + sw * 3, 1, 13);
+                ctx.fillStyle = '#b8b8c0';
+                ctx.fillRect(hx - (fx < 0 ? 4 : 0), w.lane - 8 + sw * 3, 4, 2);
+                ctx.fillStyle = '#e8e8f0';
+                ctx.fillRect(hx - (fx < 0 ? 4 : 0), w.lane - 8 + sw * 3, 4, 1);
+              }
+              });
             }
             if (m.sick.includes(w.id) && Math.floor(this.t * 2) % 2 === 0) {
               ctx.fillStyle = '#7fd05a';
@@ -617,6 +747,8 @@ export class Scene {
     }
     this.drawStations(ctx, m);
     list.sort((a, b) => a.y - b.y).forEach((e) => e.draw());
+    tools.forEach((f) => f());
+    this.drawStationsFront(ctx, m);
   }
 
   private drawLight(ctx: CanvasRenderingContext2D): void {
@@ -654,6 +786,11 @@ export class Scene {
         ctx.fillRect(x, y + 1, 5, 1);
         ctx.fillRect(x + 1, y + 2, 3, 1);
         ctx.fillRect(x + 2, y + 3, 1, 1);
+      } else if (p.kind === 'plus') {
+        const x = Math.round(p.x);
+        const y = Math.round(p.y);
+        ctx.fillRect(x + 1, y, 1, 3);
+        ctx.fillRect(x, y + 1, 3, 1);
       } else {
         ctx.fillRect(Math.round(p.x), Math.round(p.y), 2, 2);
       }
