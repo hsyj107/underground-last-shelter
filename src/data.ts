@@ -238,22 +238,135 @@ export interface ProfDef {
   lastWords: string[];
 }
 
+/** 플레이어(관리자) 기본값. 시작 화면에서 고른 값으로 바뀐다. */
 export const PLAYER: SurvDef = {
   id: 'me',
-  name: '점장',
-  title: '지하 7층 편의점 점장',
-  look: { skin: '#f0c8a0', hair: '#3a2a22', style: 'short', top: '#2f4a6a', top2: '#ff9a3c', pants: '#3a3a4a', shoes: '#2a2a2a', acc: ['vest', 'cap'] },
-  buff: { kind: 'prod_all', value: 0, text: '점장은 모든 걸 조금씩 한다' },
+  name: '관리자',
+  title: '지하 7층 대피소 관리자',
+  look: { skin: '#f0c8a0', hair: '#3a2a22', style: 'short', top: '#2f4a6a', top2: '#ff9a3c', pants: '#3a3a4a', shoes: '#2a2a2a', acc: ['vest'] },
+  buff: { kind: 'prod_all', value: 0, text: '' },
   power: 1,
   likes: { items: [] },
   unlock: { type: 'start' },
   hint: '',
   intro: '',
   chapters: ['', '', ''],
-  chat: ['오늘도 셔터를 올린다.', '선반이 비어 있으면 마음도 비는 법.', '손님이 와야 장사가 되는데…'],
+  chat: ['아직 문은 닫혀 있다.', '오늘도 숫자부터 센다. 사람, 식량, 물.', '내가 내리는 결정이 누군가의 하루가 된다.'],
   prof: 'me',
   stats: { str: 3, agi: 3, med: 3, cha: 4 },
 };
+
+// ---------- 플레이어 만들기 ----------
+
+export type Gender = 'm' | 'f' | 'x';
+export const GENDERS: { id: Gender; name: string }[] = [
+  { id: 'm', name: '남성' },
+  { id: 'f', name: '여성' },
+  { id: 'x', name: '밝히지 않음' },
+];
+
+export interface Start {
+  food?: number;
+  water?: number;
+  med?: number;
+  caps?: number;
+  upg?: Partial<Record<UpgKey, number>>;
+}
+
+/** 출신: 사태가 터졌을 때 어디서 무엇이었나 */
+export interface Origin {
+  id: string;
+  name: string;
+  icon: string;
+  blurb: string;
+  bonus: Partial<Stats>;
+  start: Start;
+  perk: string;
+  acc: string[];
+}
+
+export const ORIGINS: Origin[] = [
+  { id: 'tenant', name: '입점 상인', icon: '🏪', acc: ['vest'],
+    blurb: '지하 7층 편의점에서 야간 근무를 하던 중이었다. 셔터 열쇠와 매장 재고가 손에 있었다. 이 층에서 가장 먼저 문을 걸어 잠근 사람이다.',
+    bonus: { cha: 1 }, start: { food: 20, caps: 20 }, perk: '매력 +1 · 시작 식량 +20 · 뚜껑 +20' },
+  { id: 'staff', name: '시설 관리직원', icon: '🔧', acc: ['cap'],
+    blurb: '건물 설비팀이었다. 정수 탱크, 비상 발전기, 배관 도면의 위치를 몸으로 안다. 마스터키 한 뭉치가 허리춤에서 짤랑거린다.',
+    bonus: { str: 1 }, start: { water: 30 }, perk: '전투 +1 · 시작 식수 +30' },
+  { id: 'guard', name: '보안 요원', icon: '🛡', acc: [],
+    blurb: '야간 순찰 중이었다. 진압봉과 무전기, 그리고 사람들이 몰려오는 순간 문을 닫아야 했던 기억이 남았다. 누구를 들였고 누구를 못 들였는지, 전부 기억한다.',
+    bonus: { str: 2 }, start: {}, perk: '전투 +2' },
+  { id: 'shopper', name: '쇼핑 온 시민', icon: '🛍', acc: [],
+    blurb: '그날은 그냥 장을 보러 내려온 평범한 사람이었다. 가진 건 장바구니와 가방 속 상비약뿐이지만, 얽매인 것도 없다.',
+    bonus: {}, start: { caps: 60, med: 10 }, perk: '시작 뚜껑 +60 · 의약품 +10' },
+];
+
+/** 직업: 사태 전에 하던 일. 능력치 굴림의 범위를 정한다 */
+export interface Job {
+  id: string;
+  name: string;
+  icon: string;
+  blurb: string;
+  range: Record<keyof Stats, [number, number]>;
+  start: Start;
+  perk: string;
+  chat: string[];
+}
+
+export const JOBS: Job[] = [
+  { id: 'medic', name: '의료인', icon: '⚕', blurb: '응급실이든 약국이든, 다친 사람 앞에서 손이 먼저 움직인다.',
+    range: { str: [1, 3], agi: [2, 4], med: [6, 9], cha: [2, 5] }, start: { med: 15 }, perk: '의료 6~9 · 시작 의약품 +15',
+    chat: ['약은 아껴 쓰는 게 아니라 필요한 사람에게 쓰는 겁니다.', '상처부터 보여 주세요. 변명은 그다음.', '오늘 몇 명이 아프지?']},
+  { id: 'engineer', name: '기술자', icon: '🛠', blurb: '망가진 건 고치면 된다. 사람만 빼고.',
+    range: { str: [2, 4], agi: [5, 8], med: [1, 3], cha: [1, 4] }, start: { upg: { farm: 1 } }, perk: '수색 5~8 · 수경재배 Lv1로 시작',
+    chat: ['이 배관, 아직 쓸 만합니다.', '전기는 거짓말을 안 해요. 사람과 달리.', '고칠 수 있는 건 고쳐 놨습니다.']},
+  { id: 'soldier', name: '군·경 출신', icon: '🎖', blurb: '명령을 받고 내리는 데 익숙하다. 두려움을 숨기는 법도.',
+    range: { str: [6, 9], agi: [3, 5], med: [1, 3], cha: [1, 3] }, start: {}, perk: '전투 6~9',
+    chat: ['상황 보고부터.', '아직 여기가 무너진 건 아니다.', '살아 있는 사람 수부터 센다.']},
+  { id: 'merchant', name: '영업·상인', icon: '💼', blurb: '사람을 만나 이야기하고, 값을 깎고 올리는 일을 해 왔다.',
+    range: { str: [1, 3], agi: [2, 4], med: [1, 3], cha: [6, 9] }, start: { caps: 40 }, perk: '매력 6~9 · 시작 뚜껑 +40',
+    chat: ['공짜는 없습니다. 목숨값도요.', '거래는 신뢰예요. 아직은 있나 봅니다.', '값은 상대가 정합니다. 필요한 만큼.']},
+  { id: 'clerk', name: '사무직', icon: '🗂', blurb: '튀지 않고 성실하게 살았다. 그래서 이 상황에서도 크게 무너지지 않는다.',
+    range: { str: [2, 4], agi: [2, 4], med: [2, 4], cha: [2, 4] }, start: { food: 15, water: 15 }, perk: '고르게 2~4 · 시작 식량·식수 +15',
+    chat: ['일단 표로 정리해 봅시다.', '재고 파악이 먼저예요.', '숫자는 정직하다. 사람이 문제지.']},
+];
+
+export const ORIGIN_BY_ID: Record<string, Origin> = Object.fromEntries(ORIGINS.map((o) => [o.id, o]));
+export const JOB_BY_ID: Record<string, Job> = Object.fromEntries(JOBS.map((j) => [j.id, j]));
+
+export const LOOK_OPTS = {
+  skins: ['#f4d4b0', '#f0c8a0', '#e8c098', '#e0b088', '#d0a078', '#b88860'],
+  hairs: ['#2a2a3a', '#3a2a22', '#4a3022', '#8a5a2a', '#c8a050', '#8a8a8a', '#6a3a8a', '#c8486a'],
+  styles: [
+    { id: 'short', name: '짧은 머리' },
+    { id: 'long', name: '긴 머리' },
+    { id: 'bun', name: '묶음 머리' },
+    { id: 'tuft', name: '삐죽 머리' },
+    { id: 'bald', name: '민머리' },
+  ] as { id: Look['style']; name: string }[],
+  tops: ['#2f4a6a', '#6a3a3a', '#3a6a4a', '#4a4a4a', '#8a6a3a', '#5a3a6a'],
+  accs: [
+    { id: 'glasses', name: '안경' },
+    { id: 'cap', name: '모자' },
+    { id: 'beard', name: '수염' },
+    { id: 'scar', name: '흉터' },
+  ],
+};
+
+export const NAME_POOL: Record<Gender, string[]> = {
+  m: ['도윤', '서준', '지후', '현우', '태민', '건우', '민재', '준혁'],
+  f: ['서연', '지아', '하윤', '수빈', '예린', '지민', '다은', '유나'],
+  x: ['지우', '서진', '하람', '도하', '이안', '해든', '라온', '시안'],
+};
+
+/** 시작 화면에서 정해진 플레이어 정보 */
+export interface PlayerInfo {
+  name: string;
+  gender: Gender;
+  origin: string;
+  job: string;
+  look: Look;
+  stats: Stats;
+}
 
 export const SKINS = ['#f4d4b0', '#f0c8a0', '#e8c098', '#e0b088', '#d0a078'];
 export const DARK_HAIRS = ['#2a2a3a', '#3a2a22', '#4a3022', '#4a2a1a', '#1e1e26'];
@@ -342,7 +455,7 @@ export const PROFS: ProfDef[] = [
     intro: '"다친 사람 있어요? 아니면 제가 먼저 다쳤을지도. 하하, 농담이에요. 들어가도 될까요?"',
     chapters: [
       '야간 근무 중이던 병동의 환자들을 끝까지 옥상으로 대피시켰다. 마지막 한 명까지. 그 이야기는 거기까지만 한다.',
-      '구급상자를 정리하다 말했다. "연고에도 유통기한이 있는데, 마음 달래는 건 유통기한이 없대요." 그리고 점장의 손에 밴드를 붙였다.',
+      '구급상자를 정리하다 말했다. "연고에도 유통기한이 있는데, 마음 달래는 건 유통기한이 없대요." 그리고 관리자의 손에 밴드를 붙였다.',
       '편의점 구석에 \'간이 진료소\' 팻말이 생겼다. 환자가 한 명도 안 오는 날이 제일 좋은 날이라고 한다.',
     ],
     chat: ['밥은 먹었어요? 약보다 밥이 먼저예요.', '손 씻었죠? 씻었다고 해 줘요.', '오늘은 다치지 말기로 해요, 우리.'],
@@ -375,11 +488,11 @@ export const PROFS: ProfDef[] = [
     unlock: { type: 'item', id: 't_radio' }, hint: '작동하는 라디오를 발견하면 찾아온다.',
     intro: '"안녕하세요 B7 청취자 여러분— 아, 청취자가 아직 없구나. 방송 장비부터 찾아야겠어요!"',
     chapters: [
-      '새벽 두 시, 방송국 대신 편의점 계산대 뒤에서 마이크를 잡았다. 첫 곡 신청자는 점장.',
+      '새벽 두 시, 방송국 대신 편의점 계산대 뒤에서 마이크를 잡았다. 첫 곡 신청자는 관리자.',
       '라디오에 지직거리며 다른 곳의 신호가 잡혔다. "다른 생존자가 있나 봐요! 우리, 혼자가 아니에요."',
       '매일 밤 12시 \'종말 편의점 심야방송\'이 시작된다. 오프닝 멘트는 늘 같다. "오늘도 살아남은 당신, 수고했어요."',
     ],
-    chat: ['오늘의 신청곡은 점장님 거예요.', '마이크 체크, 원 투. 청취자 한 분 계시죠?', '새벽엔 모든 노래가 더 좋게 들려요.'],
+    chat: ['오늘의 신청곡은 관리자님 거예요.', '마이크 체크, 원 투. 청취자 한 분 계시죠?', '새벽엔 모든 노래가 더 좋게 들려요.'],
     lastWords: ['"오늘도 살아남은 당신, 수고했어요. 이건 마지막 멘트."', '"마이크 체크… 원 투…"', '"청취자 한 분, 계셨죠?"'],
   },
   {
@@ -393,10 +506,10 @@ export const PROFS: ProfDef[] = [
     chapters: [
       '반짝이는 걸 잘 찾는다. 병뚜껑, 구슬, 가끔은 잃어버린 열쇠. 어른들은 못 보는 구석을 아이는 본다.',
       '배낭 속엔 사진이 한 장 있다. 아무도 묻지 않았지만 다들 안다. 다음 날부터 어른들은 아이 몫으로 간식을 한 개씩 더 챙긴다.',
-      '"나 커서 점장 할래요!" "벌써 점장은 여기 있는데?" "그럼 부점장!" 아이는 오늘도 선반을 정리한다. 가끔은 거꾸로.',
+      '"나 커서 관리자 할래요!" "벌써 관리자는 여기 있는데?" "그럼 부관리자!" 아이는 오늘도 선반을 정리한다. 가끔은 거꾸로.',
     ],
     chat: ['이거 보세요! 별 모양 뚜껑!', '나 오늘 선반 열 개나 닦았어요!', '밤에 무서우면 고양이랑 자면 돼요.'],
-    lastWords: ['"아저씨, 뚜껑 내 주머니에 있어요. 가져요."', '"무서우면 고양이랑 자면 된댔는데…"', '"나 커서… 부점장 할 건데."'],
+    lastWords: ['"아저씨, 뚜껑 내 주머니에 있어요. 가져요."', '"무서우면 고양이랑 자면 된댔는데…"', '"나 커서… 부관리자 할 건데."'],
   },
 ];
 
@@ -424,8 +537,21 @@ export function makeDef(p: Person): SurvDef {
   };
 }
 
-/** 현재 게임에 존재하는 모든 사람(점장 포함, 사망자 포함). 상태를 불러오거나 새 사람이 생기면 채운다. */
+/** 현재 게임에 존재하는 모든 사람(플레이어 포함, 사망자 포함). 상태를 불러오거나 새 사람이 생기면 채운다. */
 export const SURV_BY_ID: Record<string, SurvDef> = { me: PLAYER };
+export function registerPlayer(p: PlayerInfo): void {
+  const o = ORIGIN_BY_ID[p.origin];
+  const j = JOB_BY_ID[p.job];
+  SURV_BY_ID.me = {
+    ...PLAYER,
+    name: p.name,
+    title: `${o?.name ?? ''} · ${j?.name ?? ''}`,
+    look: p.look,
+    stats: p.stats,
+    power: 1 + Math.floor((p.stats.str - 1) / 3.5),
+    chat: j?.chat ?? PLAYER.chat,
+  };
+}
 export function registerPerson(p: Person): void {
   SURV_BY_ID[p.id] = makeDef(p);
 }

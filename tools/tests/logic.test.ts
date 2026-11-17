@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ITEMS, ITEM_BY_ID, PROD, PROFS, ZONES, SHELF_ORDER, CAT_ORDER, RARITY, UPGRADES } from '../../src/data.ts';
+import { ITEMS, ITEM_BY_ID, JOBS, ORIGINS, PROD, PROFS, SURV_BY_ID, ZONES, SHELF_ORDER, CAT_ORDER, RARITY, UPGRADES } from '../../src/data.ts';
 import { SHAPES } from '../../src/shapes.ts';
 import * as g from '../../src/state.ts';
 
@@ -43,8 +43,14 @@ test('데이터 무결성: 아이템/모양/구역', () => {
   for (const z of ZONES) assert.ok(z.unlock <= ITEMS.length);
 });
 
-test('새 게임: 비축이 있고 점장 혼자서는 먹고살 만하다', () => {
-  const s = g.newState('테스트', 0);
+/** 시작 보너스가 없는 조합 */
+function plain(): g.Creation {
+  const c = g.defaultCreation();
+  return { ...c, origin: 'guard', job: 'soldier', stats: g.rollStats('guard', 'soldier') };
+}
+
+test('새 게임: 비축이 있고 플레이어 혼자서는 먹고살 만하다', () => {
+  const s = g.newState('테스트', 0, plain());
   assert.equal(s.caps, 20);
   assert.deepEqual(s.res, { food: 60, water: 60, med: 10 });
   const f = g.flow(s, 0);
@@ -299,7 +305,7 @@ test('굶주림 위기: 오래 굶으면 터지고, 추방하면 입이 하나 �
 test('판매와 개조', () => {
   const s = g.newState('a', 0);
   s.items['m_serum'] = 2;
-  assert.equal(g.sellItem(s, 'm_serum', 0), 100);
+  assert.equal(g.sellItem(s, 'm_serum', 0), g.sellPrice(s, 'm_serum', 0) || 0);
   assert.equal(s.items['m_serum'], 1);
   assert.equal(g.sellItem(s, 'f_tuna', 0), 0);
   const c0 = UPGRADES.farm.base;
@@ -392,15 +398,16 @@ test('죽은 직업은 다시 후보가 된다 (새 얼굴, 새 이름으로)', 
 });
 
 test('매력: 매장에 있는 가장 매력적인 사람이 판매가를 올린다', () => {
-  const s = g.newState('a', 0);
-  assert.equal(g.sellPrice(s, 'm_serum', 0), 100);
+  const s = g.newState('a', 0, plain());
+  const mine = Math.round(100 * (1 + 0.03 * SURV_BY_ID.me.stats.cha));
+  assert.equal(g.sellPrice(s, 'm_serum', 0), mine);
   const dj = join(s, 'dj');
   assert.ok(s.people[dj].stats.cha >= 7);
   const up = g.sellPrice(s, 'm_serum', 0);
   assert.equal(up, Math.round(100 * (1 + 0.03 * s.people[dj].stats.cha)));
   // 탐사 중이면 흥정해 줄 수 없다
   s.exps.push({ id: 'x', zone: 'mart', members: [dj], start: 0, end: 1000, result: { items: [], caps: 0, caught: false, line: '', deaths: [], supplies: { food: 0, water: 0, med: 0 } }, notified: false });
-  assert.equal(g.sellPrice(s, 'm_serum', 500), 100);
+  assert.equal(g.sellPrice(s, 'm_serum', 500), mine); // 탐사 중이면 남은 사람 중에서
 });
 
 test('관계: 합류할 때 친함/불화가 정해지고 탐사에 영향을 준다', () => {
@@ -455,4 +462,63 @@ test('관계: 친구가 죽으면 남은 친구는 충격을 받는다', () => {
   assert.equal(s.aff[cook], 22);
   assert.ok(g.isTired(s, cook, r.exp.end + 1));
   g.setRng(Math.random);
+});
+
+test('플레이어 만들기: 직업 범위와 출신 보정으로 능력치가 굴려진다', () => {
+  g.setRng(Math.random);
+  for (const o of ORIGINS) {
+    for (const j of JOBS) {
+      for (let i = 0; i < 40; i++) {
+        const st = g.rollStats(o.id, j.id);
+        for (const k of ['str', 'agi', 'med', 'cha'] as const) {
+          const lo = j.range[k][0] + (o.bonus[k] ?? 0);
+          const hi = Math.min(10, j.range[k][1] + (o.bonus[k] ?? 0));
+          assert.ok(st[k] >= lo && st[k] <= hi, `${o.id}/${j.id}/${k}: ${st[k]} not in ${lo}-${hi}`);
+        }
+      }
+    }
+  }
+  // 극단: 군·경 + 보안 요원은 전투가 8 이상
+  for (let i = 0; i < 40; i++) assert.ok(g.rollStats('guard', 'soldier').str >= 8);
+  g.setRng(() => 0);
+  assert.deepEqual(g.rollStats('tenant', 'merchant'), { str: 1, agi: 2, med: 1, cha: 7 });
+  g.setRng(Math.random);
+});
+
+test('플레이어 만들기: 출신과 직업의 시작 보너스, 이름·외형이 반영된다', () => {
+  const cr: g.Creation = { gender: 'f', origin: 'tenant', job: 'engineer', look: { ...g.defaultCreation().look, skin: '#b88860' }, stats: { str: 3, agi: 6, med: 2, cha: 4 } };
+  const s = g.newState('  한서  ', 0, cr);
+  assert.equal(s.player.name, '한서');
+  assert.equal(s.caps, 40); // 입점 상인 +20
+  assert.equal(s.res.food, 80); // +20
+  assert.equal(s.upg.farm, 1); // 기술자
+  assert.equal(SURV_BY_ID.me.name, '한서');
+  assert.equal(SURV_BY_ID.me.look.skin, '#b88860');
+  assert.equal(SURV_BY_ID.me.stats.agi, 6);
+  assert.equal(SURV_BY_ID.me.title, '입점 상인 · 기술자');
+  const empty = g.newState('', 0, cr);
+  assert.equal(empty.player.name, '관리자');
+});
+
+test('플레이어 능력치는 탐사에 반영된다 (전투→위험, 의료→동료 생존, 수색→희귀 확률)', () => {
+  const sol: g.Creation = { ...g.defaultCreation(), origin: 'guard', job: 'soldier', stats: { str: 9, agi: 3, med: 1, cha: 2 } };
+  const s = g.newState('a', 0, sol);
+  const strong = g.previewExpedition(s, 'megamart', ['me']);
+  const weak = g.newState('b', 0, { ...sol, stats: { str: 1, agi: 3, med: 1, cha: 2 } });
+  assert.ok(strong.power > g.previewExpedition(weak, 'megamart', ['me']).power);
+  // 의료 높은 플레이어가 함께 가면 동료의 사망 확률이 내려간다
+  const kid = join(s, 'kid');
+  const lowMed = g.deathChance(kid, ['me', kid], s);
+  const doc: g.Creation = { ...sol, origin: 'shopper', job: 'medic', stats: { str: 1, agi: 3, med: 9, cha: 2 } };
+  const s2 = g.newState('c', 0, doc);
+  const kid2 = join(s2, 'kid');
+  assert.ok(g.deathChance(kid2, ['me', kid2], s2) < lowMed);
+});
+
+test('저장 불러오기 시 플레이어 정보가 유지되고 레지스트리가 복원된다', () => {
+  const cr: g.Creation = { gender: 'm', origin: 'staff', job: 'merchant', look: g.defaultCreation().look, stats: { str: 2, agi: 2, med: 2, cha: 8 } };
+  const s = g.newState('도윤', 0, cr);
+  const json = JSON.parse(JSON.stringify(s));
+  assert.equal(json.player.name, '도윤');
+  assert.equal(json.player.stats.cha, 8);
 });

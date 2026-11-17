@@ -5,10 +5,11 @@ import {
   DARK_HAIRS,
   GIVEN,
   ITEMS,
+  JOB_BY_ID,
   ITEM_BY_ID,
   KID_NAMES,
   OLD_GIVEN,
-  PLAYER,
+  ORIGIN_BY_ID,
   PROD,
   PROFS,
   PROF_BY_ID,
@@ -20,9 +21,11 @@ import {
   ZONES,
   ZONE_BY_ID,
   registerPerson,
+  registerPlayer,
   resetRegistry,
 } from './data.ts';
-import type { Cat, Look, Person, ProfDef, ResKey, Stats, SurvDef, Unlock, UpgKey, ZoneDef } from './data.ts';
+import type { Cat, Gender, Look, Person, PlayerInfo, ProfDef, ResKey, Stats, SurvDef, Unlock, UpgKey, ZoneDef } from './data.ts';
+import { PLAYER } from './data.ts';
 
 export const config = { speed: 1 };
 /** 물자가 바닥난 채로 이 시간이 지나면 위기가 터진다 */
@@ -70,6 +73,7 @@ export const RATIONS: Record<Ration, { name: string; icon: string; eat: number; 
 
 export interface State {
   v: 2;
+  player: PlayerInfo;
   /** 두 사람 사이의 관계. 키는 정렬한 id 두 개를 | 로 이은 것. 없으면 그냥 아는 사이 */
   rel: Record<string, 'friend' | 'rival'>;
   /** 지금까지 만난 모든 사람(죽은 사람 포함) */
@@ -112,19 +116,50 @@ export type GameEvent =
 
 const ms = (n: number): number => Math.round(n / config.speed);
 
-export function newState(name: string, now: number): State {
+export interface Creation {
+  gender: Gender;
+  origin: string;
+  job: string;
+  look: Look;
+  stats: Stats;
+}
+
+/** 출신 보정을 더한 직업 범위 안에서 능력치를 굴린다 (1~10) */
+export function rollStats(originId: string, jobId: string): Stats {
+  const o = ORIGIN_BY_ID[originId];
+  const j = JOB_BY_ID[jobId];
+  const out = {} as Stats;
+  for (const k of ['str', 'agi', 'med', 'cha'] as (keyof Stats)[]) {
+    const [lo, hi] = j.range[k];
+    out[k] = Math.max(1, Math.min(10, lo + Math.floor(rng() * (hi - lo + 1)) + (o.bonus[k] ?? 0)));
+  }
+  return out;
+}
+
+export function defaultCreation(): Creation {
+  const look: Look = { ...PLAYER.look, acc: ORIGIN_BY_ID.tenant.acc.slice() };
+  return { gender: 'x', origin: 'tenant', job: 'clerk', look, stats: rollStats('tenant', 'clerk') };
+}
+
+export function newState(name: string, now: number, cr: Creation = defaultCreation()): State {
   resetRegistry();
-  return {
+  const o = ORIGIN_BY_ID[cr.origin];
+  const j = JOB_BY_ID[cr.job];
+  const gain = (k: 'food' | 'water' | 'med' | 'caps'): number => (o.start[k] ?? 0) + (j.start[k] ?? 0);
+  const player: PlayerInfo = { name: name.trim() || '관리자', gender: cr.gender, origin: cr.origin, job: cr.job, look: cr.look, stats: cr.stats };
+  registerPlayer(player);
+  const st: State = {
     v: 2,
     rel: {},
     people: {},
     dead: [],
     nextPid: 1,
-    name: name.trim() || '점장',
+    player,
+    name: player.name,
     created: now,
     last: now,
-    caps: 20,
-    res: { food: 60, water: 60, med: 10 },
+    caps: 20 + gain('caps'),
+    res: { food: 60 + gain('food'), water: 60 + gain('water'), med: 10 + gain('med') },
     ration: 'normal',
     shortMs: 0,
     crisis: false,
@@ -143,6 +178,8 @@ export function newState(name: string, now: number): State {
     nextExpId: 1,
     stats: { expeditions: 0, totalCaps: 0, caught: 0 },
   };
+  for (const [k, lv] of Object.entries(j.start.upg ?? {})) st.upg[k as UpgKey] = lv as number;
+  return st;
 }
 
 // ---------- 조회 ----------
@@ -198,7 +235,7 @@ export function availableCrew(s: State, now: number): string[] {
 
 // ---------- 비축 · 소비 ----------
 
-/** 벙커에서 먹고 마시는 사람 (점장 포함, 탐사 중이어도 몫은 따로 챙겨 둔다) */
+/** 벙커에서 먹고 마시는 사람 (플레이어 포함, 탐사 중이어도 몫은 따로 챙겨 둔다) */
 export function heads(s: State): number {
   return 1 + s.crew.length;
 }
@@ -435,7 +472,7 @@ export interface Preview {
   risk: number;
   loot: number;
   power: number;
-  /** 들키면 이 사람이 죽을 확률 (점장 제외) */
+  /** 들키면 이 사람이 죽을 확률 (플레이어 제외) */
   deathIf: Record<string, number>;
   /** 이번 탐사에서 누군가 죽을 확률 */
   anyDeath: number;
@@ -498,6 +535,7 @@ function luckOf(s: State, members: string[]): number {
   let luck = 1;
   for (const id of members) {
     const d = SURV_BY_ID[id];
+    if (d) luck += 0.03 * d.stats.agi; // 수색 능력치: 희귀·전설 발견 확률
     if (d && d.buff.kind === 'exp_luck') luck += d.buff.value * buffScale(s, id);
   }
   return luck;
@@ -795,11 +833,11 @@ export function gift(s: State, id: string, itemId: string): GiftResult {
 
 // ---------- 판매 · 개조 ----------
 
-/** 매장에 있는 사람 중 가장 매력적인 사람이 흥정해 준다 (점장 제외, 매력 1점당 +3%) */
+/** 벙커에 있는 사람 중 가장 매력적인 사람이 흥정해 준다 (매력 1점당 +3%) */
 export function sellPrice(s: State, itemId: string, now: number): number {
   const it = ITEM_BY_ID[itemId];
   if (!it) return 0;
-  const cha = Math.max(0, ...homeCrew(s, now).filter((id) => id !== 'me').map((id) => SURV_BY_ID[id]?.stats.cha ?? 0));
+  const cha = Math.max(0, ...homeCrew(s, now).map((id) => SURV_BY_ID[id]?.stats.cha ?? 0));
   return Math.round(RARITY[it.rarity].sell * (1 + 0.03 * cha));
 }
 
@@ -847,9 +885,10 @@ export function loadState(): State | null {
     if (!raw) return null;
     const d = JSON.parse(raw) as Partial<State>;
     if (d.v !== 2 || typeof d.created !== 'number') return null;
-    const base = newState(d.name ?? '점장', d.created);
+    const base = newState(d.name ?? '관리자', d.created);
     const st = { ...base, ...d, upg: { ...base.upg, ...(d.upg ?? {}) }, stats: { ...base.stats, ...(d.stats ?? {}) } } as State;
     resetRegistry();
+    registerPlayer(st.player);
     for (const p of Object.values(st.people)) registerPerson(p);
     return st;
   } catch {

@@ -3,6 +3,13 @@ import {
   CATS,
   CAT_ORDER,
   CHAPTER_AFF,
+  GENDERS,
+  JOBS,
+  JOB_BY_ID,
+  LOOK_OPTS,
+  NAME_POOL,
+  ORIGINS,
+  ORIGIN_BY_ID,
   ITEMS,
   ITEM_BY_ID,
   RARITY,
@@ -14,7 +21,7 @@ import {
   ZONES,
   ZONE_BY_ID,
 } from './data.ts';
-import type { Cat, ResKey, UpgKey } from './data.ts';
+import type { Cat, Gender, Look, ResKey, Stats, UpgKey } from './data.ts';
 import { Scene } from './scene.ts';
 import {
   affinity,
@@ -45,6 +52,7 @@ import {
   minutesLeft,
   loadState,
   newState,
+  rollStats,
   offlineCapMs,
   previewExpedition,
   recruit,
@@ -59,7 +67,7 @@ import {
   upgradeCost,
 } from './state.ts';
 import type { GameEvent, Report, State } from './state.ts';
-import { iconURL, portraitURL, profPortraitURL } from './sprites.ts';
+import { iconURL, lookPortraitURL, portraitURL, profPortraitURL } from './sprites.ts';
 
 type Tab = 'home' | 'explore' | 'shelf' | 'crew';
 
@@ -139,7 +147,7 @@ export function startApp(root: HTMLElement): void {
     events = tick(S, now);
     if (gap > 120000) offline = { ms: gap, food: S.res.food - before.food, water: S.res.water - before.water };
   } else {
-    S = newState('점장', now);
+    S = newState('관리자', now);
   }
 
   scene = new Scene(
@@ -252,7 +260,7 @@ function renderAll(): void {
 function updateHud(): void {
   const now = Date.now();
   $('#hud-day').textContent = `DAY ${dayNumber(S, now)}`;
-  $('#hud-name').textContent = `B7 · ${S.name === '점장' ? '점장' : `${S.name} 점장`}`;
+  $('#hud-name').textContent = `B7 · ${S.name}`;
   $('#hud-caps').textContent = fmt(S.caps);
   const lowF = (minutesLeft(S, now, 'food') ?? 9999) < 60 || S.res.food <= 0;
   const lowW = (minutesLeft(S, now, 'water') ?? 9999) < 60 || S.res.water <= 0;
@@ -320,7 +328,7 @@ function homeHtml(): string {
 
   if (S.stats.expeditions === 0 && S.exps.length === 0) {
     h += `<section class="card tip"><h3>💡 처음이라면</h3>
-      <p>1. <b>탐사</b> 탭에서 '동네 슈퍼마트'로 점장을 보내 보세요.<br>
+      <p>1. <b>탐사</b> 탭에서 '동네 슈퍼마트'로 당신을 보내 보세요.<br>
       2. 돌아온 배낭을 열면 식량·물·약이 <b>비축</b>에 더해지고, 물건은 <b>선반</b> 도감에 채워집니다.<br>
       3. 사람이 늘수록 더 많이 먹어요. 비축이 바닥나면 누군가를 내보내야 할 수도 있어요.</p></section>`;
   }
@@ -397,7 +405,7 @@ function memberChip(id: string, now: number): string {
   const tired = isTired(S, id, now);
   const on = sel.members.includes(id);
   const ok = !away && !tired;
-  const note = away ? '탐사 중' : tired ? '부상' : id === 'me' ? '점장' : `전투 ${d.stats.str}`;
+  const note = away ? '탐사 중' : tired ? '부상' : id === 'me' ? '나' : `전투 ${d.stats.str}`;
   return `<button class="chip ${on ? 'on' : ''}" data-act="member" data-id="${id}" ${ok ? '' : 'disabled'}>
     ${pt(id, 'pt sm')}<b>${d.name}</b><small>${note}</small></button>`;
 }
@@ -507,13 +515,122 @@ function crewHtml(): string {
 
 // ---------- 모달 ----------
 
+// ---------- 시작 화면: 출신 · 직업 · 외형 ----------
+
+interface CC {
+  step: number;
+  origin: string;
+  job: string;
+  name: string;
+  gender: Gender;
+  skin: string;
+  hair: string;
+  style: Look['style'];
+  top: string;
+  acc: string[];
+  stats: Stats | null;
+  rerolls: number;
+}
+let cc: CC;
+
+const pick = <T,>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];
+
+function ccLook(): Look {
+  const o = ORIGIN_BY_ID[cc.origin];
+  return {
+    skin: cc.skin,
+    hair: cc.hair,
+    style: cc.style,
+    top: cc.top,
+    top2: '#ff9a3c',
+    pants: '#3a3a4a',
+    shoes: '#2a2a2a',
+    acc: [...o.acc, ...cc.acc.filter((a) => !o.acc.includes(a))],
+  };
+}
+
+function readName(): void {
+  const el = document.getElementById('cc-name') as HTMLInputElement | null;
+  if (el) cc.name = el.value;
+}
+
 function openIntro(): void {
+  cc = {
+    step: 0,
+    origin: 'tenant',
+    job: 'clerk',
+    name: pick(NAME_POOL.x),
+    gender: 'x',
+    skin: pick(LOOK_OPTS.skins.slice(0, 4)),
+    hair: pick(LOOK_OPTS.hairs.slice(0, 3)),
+    style: 'short',
+    top: LOOK_OPTS.tops[0],
+    acc: [],
+    stats: null,
+    rerolls: 2,
+  };
+  renderCreate();
+}
+
+function statBars(st: Stats, o: string, j: string): string {
+  const jr = JOB_BY_ID[j].range;
+  const ob = ORIGIN_BY_ID[o].bonus;
+  return (Object.keys(STAT_NAME) as (keyof Stats)[])
+    .map((k) => {
+      const lo = jr[k][0] + (ob[k] ?? 0);
+      const hi = Math.min(10, jr[k][1] + (ob[k] ?? 0));
+      return `<div class="sb"><span>${STAT_NAME[k]}</span><div class="bar"><i style="width:${st[k] * 10}%"></i></div><b>${st[k]}</b><small>(${lo}~${hi})</small></div>`;
+    })
+    .join('');
+}
+
+function renderCreate(): void {
+  const dots = [0, 1, 2, 3].map((i) => `<i class="${i === cc.step ? 'on' : i < cc.step ? 'done' : ''}"></i>`).join('');
+  let body = '';
+  let next = '다음';
+  if (cc.step === 0) {
+    body = `<h2>지하 7층의 종말 편의점</h2>
+      <p class="story">대형 복합단지의 가장 아래층, 주차장 옆에 불이 꺼지지 않은 작은 편의점이 있었다.<br>위에서 무슨 일이 벌어졌는지는 아무도 말하지 않는다. 문 두드리는 소리와 비명이 끊긴 뒤, 이 층에서 책임질 수 있는 사람은 당신뿐이다.<br>지금부터 당신이 이 대피소의 <b>관리자</b>다.</p>
+      <h3>사태가 터졌을 때, 당신은…</h3>
+      <div class="opts">${ORIGINS.map(
+        (o) => `<button class="opt ${cc.origin === o.id ? 'on' : ''}" data-act="cc-origin" data-id="${o.id}"><i>${o.icon}</i><span><b>${o.name}</b><small>${o.blurb}</small><em>${o.perk}</em></span></button>`,
+      ).join('')}</div>`;
+  } else if (cc.step === 1) {
+    body = `<h2>하던 일</h2>
+      <p class="dim sm">직업에 따라 능력치가 굴려지는 범위와 시작 물자가 달라져요. 출신 보정은 그 위에 더해집니다.</p>
+      <div class="opts">${JOBS.map(
+        (j) => `<button class="opt ${cc.job === j.id ? 'on' : ''}" data-act="cc-job" data-id="${j.id}"><i>${j.icon}</i><span><b>${j.name}</b><small>${j.blurb}</small><em>${j.perk}</em></span></button>`,
+      ).join('')}</div>`;
+  } else if (cc.step === 2) {
+    const sw = (act: string, list: string[], cur: string): string =>
+      list.map((c) => `<button class="sw ${cur === c ? 'on' : ''}" style="background:${c}" data-act="${act}" data-id="${c}" aria-label="${c}"></button>`).join('');
+    body = `<h2>당신은</h2>
+      <div class="cc-prev"><img class="pt lg" src="${lookPortraitURL(ccLook())}" alt=""></div>
+      <label class="nm">이름<input id="cc-name" maxlength="8" value="${cc.name}" autocomplete="off"></label>
+      <button class="btn sm" data-act="cc-rname">🎲 이름 무작위</button>
+      <div class="cc-row"><b>성별</b>${GENDERS.map((g) => `<button class="chip sm ${cc.gender === g.id ? 'on' : ''}" data-act="cc-gender" data-id="${g.id}">${g.name}</button>`).join('')}</div>
+      <div class="cc-row"><b>피부</b>${sw('cc-skin', LOOK_OPTS.skins, cc.skin)}</div>
+      <div class="cc-row"><b>머리색</b>${sw('cc-hair', LOOK_OPTS.hairs, cc.hair)}</div>
+      <div class="cc-row"><b>머리</b>${LOOK_OPTS.styles.map((st) => `<button class="chip sm ${cc.style === st.id ? 'on' : ''}" data-act="cc-style" data-id="${st.id}">${st.name}</button>`).join('')}</div>
+      <div class="cc-row"><b>옷</b>${sw('cc-top', LOOK_OPTS.tops, cc.top)}</div>
+      <div class="cc-row"><b>특징</b>${LOOK_OPTS.accs.map((a) => `<button class="chip sm ${cc.acc.includes(a.id) ? 'on' : ''}" data-act="cc-acc" data-id="${a.id}">${a.name}</button>`).join('')}</div>`;
+  } else {
+    if (!cc.stats) cc.stats = rollStats(cc.origin, cc.job);
+    const o = ORIGIN_BY_ID[cc.origin];
+    const j = JOB_BY_ID[cc.job];
+    next = '이 사람으로 시작';
+    body = `<h2>${cc.name || '관리자'}</h2>
+      <div class="cc-prev"><img class="pt lg" src="${lookPortraitURL(ccLook())}" alt=""></div>
+      <p class="story sm">${o.icon} ${o.name} · ${j.icon} ${j.name}</p>
+      <div class="stats-roll">${statBars(cc.stats, cc.origin, cc.job)}</div>
+      <p class="dim sm">능력치는 직업·출신 범위 안에서 무작위로 정해져요. 마음에 안 들면 다시 굴릴 수 있어요 (${cc.rerolls}번 남음).</p>
+      <button class="btn wide" data-act="cc-roll" ${cc.rerolls > 0 ? '' : 'disabled'}>🎲 다시 굴리기</button>
+      <p class="dim sm">출신 · ${o.perk}<br>직업 · ${j.perk}</p>`;
+  }
   openModal(
     'intro',
-    `<h2>지하 7층의 종말 편의점</h2>
-    <p class="story">그날 이후 세상은 조용해졌다.<br>지상은 좀비들의 차지가 됐지만, 지하 7층 이 편의점의 형광등은 아직 켜져 있다.<br><br>선반은 텅 비었다. 하나씩, 채워 보자.</p>
-    <label class="nm">점장 이름<input id="nm" maxlength="8" value="" placeholder="점장" autocomplete="off"></label>
-    <button class="btn primary wide" data-act="intro-start">셔터 올리기</button>`,
+    `<div class="cc-dots">${dots}</div>${body}
+    <div class="row2">${cc.step > 0 ? '<button class="btn" data-act="cc-back">이전</button>' : '<span></span>'}<button class="btn primary" data-act="${cc.step === 3 ? 'intro-start' : 'cc-next'}">${next}</button></div>`,
   );
 }
 
@@ -521,7 +638,7 @@ function openOffline(ms: number, food: number, water: number): void {
   const d = (n: number): string => (n >= 0 ? `+${fmt(n)}` : `−${fmt(-n)}`);
   openModal(
     'offline',
-    `<h2>어서 오세요, 점장님</h2>
+    `<h2>돌아왔군요, ${S.name}</h2>
     <p class="story">${timeText(ms)} 동안 자리를 비웠어요.<br>그동안 비축은 🍞 <b>${d(food)}</b> · 💧 <b>${d(water)}</b> 만큼 변했습니다.</p>
     <button class="btn primary wide" data-act="close">챙기기</button>`,
   );
@@ -647,7 +764,8 @@ function survModal(id: string): void {
     const likes = d.likes.items.map((i) => ITEM_BY_ID[i].name);
     h += `<p class="dim sm">좋아하는 것: ${likes.join(', ')}${d.likes.cat ? ` · ${CATS[d.likes.cat].name}` : ''}</p>`;
   } else {
-    h += `<p class="story">"${d.chat[Math.floor(Math.random() * d.chat.length)]}"</p>`;
+    h += `<p class="statline">${(Object.keys(STAT_NAME) as (keyof typeof STAT_NAME)[]).map((k) => `<span>${STAT_NAME[k]} <b>${d.stats[k]}</b></span>`).join('')}</p>
+      <p class="story">"${d.chat[Math.floor(Math.random() * d.chat.length)]}"</p>`;
   }
   h += `<button class="btn wide" data-act="close">닫기</button>`;
   openModal('surv', h);
@@ -723,9 +841,74 @@ function onClick(e: Event): void {
       clearState();
       location.href = location.pathname;
       break;
+    case 'cc-origin':
+      cc.origin = id;
+      cc.stats = null;
+      cc.rerolls = 2;
+      renderCreate();
+      break;
+    case 'cc-job':
+      cc.job = id;
+      cc.stats = null;
+      cc.rerolls = 2;
+      renderCreate();
+      break;
+    case 'cc-next':
+      readName();
+      cc.step = Math.min(3, cc.step + 1);
+      renderCreate();
+      break;
+    case 'cc-back':
+      readName();
+      cc.step = Math.max(0, cc.step - 1);
+      renderCreate();
+      break;
+    case 'cc-gender':
+      readName();
+      cc.gender = id as Gender;
+      if (id === 'f') cc.style = 'long';
+      else if (id === 'm') cc.style = 'short';
+      if (NAME_POOL.m.concat(NAME_POOL.f, NAME_POOL.x).includes(cc.name)) cc.name = pick(NAME_POOL[cc.gender]);
+      renderCreate();
+      break;
+    case 'cc-rname':
+      cc.name = pick(NAME_POOL[cc.gender]);
+      renderCreate();
+      break;
+    case 'cc-skin':
+      readName();
+      cc.skin = id;
+      renderCreate();
+      break;
+    case 'cc-hair':
+      readName();
+      cc.hair = id;
+      renderCreate();
+      break;
+    case 'cc-style':
+      readName();
+      cc.style = id as Look['style'];
+      renderCreate();
+      break;
+    case 'cc-top':
+      readName();
+      cc.top = id;
+      renderCreate();
+      break;
+    case 'cc-acc':
+      readName();
+      cc.acc = cc.acc.includes(id) ? cc.acc.filter((a) => a !== id) : [...cc.acc, id];
+      renderCreate();
+      break;
+    case 'cc-roll':
+      if (cc.rerolls > 0) {
+        cc.rerolls -= 1;
+        cc.stats = rollStats(cc.origin, cc.job);
+        renderCreate();
+      }
+      break;
     case 'intro-start': {
-      const name = ($('#nm') as HTMLInputElement).value;
-      S = newState(name, Date.now());
+      S = newState(cc.name, Date.now(), { gender: cc.gender, origin: cc.origin, job: cc.job, look: ccLook(), stats: cc.stats ?? rollStats(cc.origin, cc.job) });
       saveState(S);
       modalKind = null;
       $('#modal').classList.add('hide');
@@ -761,7 +944,7 @@ function onClick(e: Event): void {
     case 'recruit':
       if (recruit(S, id, now)) {
         saveState(S);
-        toast(`${josa(SURV_BY_ID[id].name, 'iga')} 편의점에 합류했어요!`, 'good');
+        toast(`${josa(SURV_BY_ID[id].name, 'iga')} 벙커에 합류했어요!`, 'good');
         scene.burst(22, 130, 'spark', 8);
         closeModal();
       }

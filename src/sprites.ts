@@ -370,3 +370,15 @@ export function profPortraitURL(profId: string): string {
   portraitCache.set(key, url);
   return url;
 }
+
+/** 시작 화면 미리보기: 아직 저장되지 않은 외형을 그린다 */
+export function lookPortraitURL(look: Look): string {
+  const c = makeCanvas(24, 26);
+  const ctx = c.getContext('2d') as Ctx;
+  ctx.fillStyle = '#3a2e24';
+  ctx.fillRect(0, 0, 24, 26);
+  ctx.fillStyle = '#4a3c2e';
+  ctx.fillRect(0, 20, 24, 6);
+  drawPerson(ctx, look, 12, 23, { frame: 0, moving: false, dir: 1 });
+  return c.toDataURL();
+}
