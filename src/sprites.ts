@@ -249,9 +249,9 @@ export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, o: Pose
       case 'beard':
         // 수염은 머리색을 따른다 (어르신은 머리가 하얘서 흰 수염)
         rect(4, 4 + hb, 4, 1, look.hair);
-        rect(2, 4 + hb, 1, 3, look.hair);
-        rect(9, 4 + hb, 1, 3, look.hair);
-        rect(3, 6 + hb, 6, 2, look.hair);
+        rect(2, 5 + hb, 1, 2, look.hair);
+        rect(9, 5 + hb, 1, 2, look.hair);
+        rect(4, 6 + hb, 4, 1, look.hair);
         break;
       case 'cane':
         rect(11, 9, 1, H - 9, '#7a4a2a');
