@@ -559,8 +559,8 @@ function openIntro(): void {
     step: 0,
     origin: 'tenant',
     job: 'clerk',
-    name: pick(NAME_POOL.x),
-    gender: 'x',
+    name: pick(NAME_POOL.m),
+    gender: 'm',
     skin: pick(LOOK_OPTS.skins.slice(0, 4)),
     hair: pick(LOOK_OPTS.hairs.slice(0, 3)),
     style: 'short',
@@ -868,7 +868,7 @@ function onClick(e: Event): void {
       cc.gender = id as Gender;
       if (id === 'f') cc.style = 'long';
       else if (id === 'm') cc.style = 'short';
-      if (NAME_POOL.m.concat(NAME_POOL.f, NAME_POOL.x).includes(cc.name)) cc.name = pick(NAME_POOL[cc.gender]);
+      if (NAME_POOL.m.concat(NAME_POOL.f).includes(cc.name)) cc.name = pick(NAME_POOL[cc.gender]);
       renderCreate();
       break;
     case 'cc-rname':

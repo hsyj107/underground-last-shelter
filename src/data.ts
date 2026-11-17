@@ -258,11 +258,10 @@ export const PLAYER: SurvDef = {
 
 // ---------- 플레이어 만들기 ----------
 
-export type Gender = 'm' | 'f' | 'x';
+export type Gender = 'm' | 'f';
 export const GENDERS: { id: Gender; name: string }[] = [
   { id: 'm', name: '남성' },
   { id: 'f', name: '여성' },
-  { id: 'x', name: '밝히지 않음' },
 ];
 
 export interface Start {
@@ -355,7 +354,6 @@ export const LOOK_OPTS = {
 export const NAME_POOL: Record<Gender, string[]> = {
   m: ['도윤', '서준', '지후', '현우', '태민', '건우', '민재', '준혁'],
   f: ['서연', '지아', '하윤', '수빈', '예린', '지민', '다은', '유나'],
-  x: ['지우', '서진', '하람', '도하', '이안', '해든', '라온', '시안'],
 };
 
 /** 시작 화면에서 정해진 플레이어 정보 */

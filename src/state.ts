@@ -138,7 +138,7 @@ export function rollStats(originId: string, jobId: string): Stats {
 
 export function defaultCreation(): Creation {
   const look: Look = { ...PLAYER.look, acc: ORIGIN_BY_ID.tenant.acc.slice() };
-  return { gender: 'x', origin: 'tenant', job: 'clerk', look, stats: rollStats('tenant', 'clerk') };
+  return { gender: 'm', origin: 'tenant', job: 'clerk', look, stats: rollStats('tenant', 'clerk') };
 }
 
 export function newState(name: string, now: number, cr: Creation = defaultCreation()): State {
