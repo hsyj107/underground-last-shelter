@@ -180,7 +180,7 @@ function figClass(sprite: string, look: Look): string {
   const hc = hairColor >= 0 ? HAIR[hairColor] : undefined;
   if (beard > 0) {
     const bp = meta.beard[beard];
-    g.drawImage(part(bp, 0, { hair: hc, strip: [0.5, 0.06] }), Math.round((W - bp.w) / 2), by + 2 - bp.h);
+    g.drawImage(part(bp, 0, { hair: hc, strip: [0.5, 0.06] }), Math.round((W - bp.w) / 2), by - 3 - bp.h);
   }
   if (hair >= 0) {
     const hp = hairs[hair];
