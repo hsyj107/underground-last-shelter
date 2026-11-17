@@ -1,10 +1,7 @@
-import './ui/terminal.css';
-import { startApp } from './ui/app';
+import './style.css';
+import { startApp } from './ui.ts';
 
-/**
- * 화면에 오류 메시지를 띄운다.
- * 휴대폰처럼 개발자 도구를 열기 어려운 환경에서도 캡처해서 원인을 알 수 있게 한다.
- */
+/** 휴대폰처럼 개발자 도구를 열기 어려운 환경에서도 오류 원인을 볼 수 있게 화면에 띄운다 */
 function showError(message: string): void {
   let box = document.getElementById('error-overlay');
   if (!box) {
