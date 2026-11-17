@@ -108,7 +108,7 @@ import type { Notice, RaidChoice, RaidResult, Gone } from './events.ts';
 import { cutawayURL } from './cutaway.ts';
 import { iconURL, lookPortraitURL, portraitURL, profPortraitURL } from './sprites.ts';
 
-type Tab = 'home' | 'explore' | 'build' | 'shelf' | 'crew';
+type Tab = 'home' | 'build' | 'shelf' | 'crew';
 
 let S: State;
 let scene: Scene;
@@ -116,6 +116,7 @@ let tab: Tab = 'home';
 let sel: { zone: string | null; members: string[] } = { zone: null, members: [] };
 let shelfCat: Cat | 'all' = 'all';
 let modalKind: string | null = null;
+let viewFloor: 'b7' | 'b8' = 'b7';
 let say = '';
 let bubbleTimer = 0;
 
@@ -163,12 +164,16 @@ export function startApp(root: HTMLElement): void {
         <canvas id="scene"></canvas>
         <div id="bubble" class="bubble hide"></div>
         <div id="stage-actions"></div>
+        <div id="lift">
+          <button class="fl on" data-act="floor" data-id="b7">B7</button>
+          <button class="fl" data-act="floor" data-id="b8">B8</button>
+          <button class="go" data-act="explore-open"><i>🛗</i>탐사</button>
+        </div>
       </div>
       <main id="panel"></main>
       <nav id="tabs">
         <button data-tab="home"><i>🏪</i>벙커<u></u></button>
-        <button data-tab="explore"><i>🎒</i>탐사<u></u></button>
-        <button data-tab="build"><i>🛠</i>개조<u></u></button>
+        <button data-tab="build"><i>⬆️</i>업그레이드<u></u></button>
         <button data-tab="shelf"><i>🗄️</i>선반<u></u></button>
         <button data-tab="crew"><i>👥</i>생존자<u></u></button>
       </nav>
@@ -201,11 +206,14 @@ export function startApp(root: HTMLElement): void {
       alert: !!S.raid,
       bags: S.exps.filter((e) => e.end <= Date.now()).length,
       hour: new Date().getHours(),
+      farm: S.upg.farm,
+      water: S.upg.water,
     }),
     {
       onSurvivor: (id, lx, ly) => onTapSurvivor(id, lx, ly),
       onVisitor: () => openVisitor(),
       onBag: () => openBag(),
+      onElevator: () => openExplore(),
     },
   );
   scene.start();
@@ -286,6 +294,34 @@ function openModal(kind: string, html: string): void {
   m.classList.remove('hide');
 }
 
+/** 엘리베이터 탐사 팝업 */
+function openExplore(): void {
+  if (modalKind !== null && modalKind !== 'explore') return;
+  openModal('explore', exploreDialog());
+}
+
+function exploreDialog(): string {
+  return `<h2>🛗 탐사 나가기<small>엘리베이터를 타고 지상으로 올라갑니다</small></h2>${exploreHtml()}<button class="btn wide" data-act="close">닫기</button>`;
+}
+
+/** 팝업이 열려 있으면 팝업을, 아니면 본문을 다시 그린다 */
+function refreshExplore(): void {
+  if (modalKind === 'explore') {
+    const d = document.querySelector<HTMLElement>('#modal .dialog');
+    if (d) {
+      const top = d.scrollTop;
+      d.innerHTML = exploreDialog();
+      d.scrollTop = top;
+    }
+  } else renderPanel();
+}
+
+function syncLift(): void {
+  document.querySelectorAll<HTMLElement>('#lift .fl').forEach((b) => b.classList.toggle('on', b.dataset.id === viewFloor));
+  const go = document.querySelector<HTMLElement>('#lift .go');
+  if (go) go.classList.toggle('ready', readyExps() === 0 && S.exps.length === 0 && availableCrew(S, Date.now()).length > 0);
+}
+
 function closeModal(): void {
   modalKind = null;
   say = '';
@@ -300,12 +336,13 @@ function renderAll(): void {
   renderPanel();
   renderStageActions();
   updateDots();
+  syncLift();
 }
 
 function updateHud(): void {
   const now = Date.now();
   $('#hud-day').textContent = `DAY ${dayNumber(S, now)}`;
-  $('#hud-name').textContent = `B7 · ${S.name}`;
+  $('#hud-name').textContent = `${viewFloor === 'b8' ? 'B8' : 'B7'} · ${S.name}`;
   $('#hud-caps').textContent = fmt(S.caps);
   const lowF = (minutesLeft(S, now, 'food') ?? 9999) < 60 || S.res.food <= 0;
   const lowW = (minutesLeft(S, now, 'water') ?? 9999) < 60 || S.res.water <= 0;
@@ -335,7 +372,6 @@ function updateDots(): void {
   const dots: Record<Tab, boolean> = {
     home: readyExps(now) > 0 || !!S.visitor,
     build: false,
-    explore: S.exps.length === 0 && availableCrew(S, now).length > 0 && S.stats.expeditions > 0,
     shelf: false,
     crew: !!S.visitor || Object.keys(S.sick).length > 0,
   };
@@ -365,7 +401,7 @@ function updateLive(): void {
 function renderPanel(): void {
   const p = $('#panel');
   const top = p.scrollTop;
-  p.innerHTML = tab === 'home' ? homeHtml() : tab === 'explore' ? exploreHtml() : tab === 'build' ? buildHtml() : tab === 'shelf' ? shelfHtml() : crewHtml();
+  p.innerHTML = tab === 'home' ? homeHtml() : tab === 'build' ? buildHtml() : tab === 'shelf' ? shelfHtml() : crewHtml();
   p.scrollTop = top;
 }
 
@@ -387,7 +423,7 @@ function homeHtml(): string {
 
   h += `<section class="card"><h3>🎒 탐사 현황</h3>`;
   if (!S.exps.length) {
-    h += `<p class="dim">나가 있는 탐사대가 없어요. <b>탐사</b> 탭에서 보내 보세요.</p>`;
+    h += `<p class="dim">나가 있는 탐사대가 없어요. 엘리베이터의 <b>🛗 탐사</b> 버튼으로 보내 보세요.</p>`;
   } else {
     for (const e of S.exps) {
       const z = ZONE_BY_ID[e.zone];
@@ -410,10 +446,10 @@ function homeHtml(): string {
   return h;
 }
 
-/** 개조 탭: 거주 구역(층) 확장과 설비 개조 */
+/** 업그레이드 탭: 거주 구역(층) 확장과 설비 업그레이드 */
 function buildHtml(): string {
   let h = floorHtml();
-  h += `<section class="card"><h3>🛠 개조</h3>`;
+  h += `<section class="card"><h3>⬆️ 설비 업그레이드</h3>`;
   (Object.keys(UPGRADES) as UpgKey[]).forEach((k) => {
     const u = UPGRADES[k];
     const lv = S.upg[k];
@@ -1217,8 +1253,8 @@ function onClick(e: Event): void {
       break;
     case 'rescue-tab':
       if (S.rescue) sel = { zone: S.rescue.zone, members: [] };
-      tab = 'explore';
       closeModal();
+      openExplore();
       break;
     case 'rescue-go': {
       if (!sel.zone) break;
@@ -1228,7 +1264,7 @@ function onClick(e: Event): void {
         toast('구조대 출발!', 'good');
         sel = { zone: null, members: [] };
         tab = 'home';
-        renderAll();
+        closeModal();
       } else toast(r.error, 'bad');
       break;
     }
@@ -1269,14 +1305,14 @@ function onClick(e: Event): void {
       break;
     case 'zone':
       sel = sel.zone === id ? { zone: null, members: [] } : { zone: id, members: [] };
-      renderPanel();
+      refreshExplore();
       break;
     case 'member': {
       const i = sel.members.indexOf(id);
       if (i >= 0) sel.members.splice(i, 1);
       else if (sel.members.length < 3) sel.members.push(id);
       else toast('탐사대는 최대 3명이에요.');
-      renderPanel();
+      refreshExplore();
       break;
     }
     case 'go': {
@@ -1287,10 +1323,19 @@ function onClick(e: Event): void {
         toast(`${josa(ZONE_BY_ID[sel.zone].name, 'euro')} 출발!`, 'good');
         sel = { zone: null, members: [] };
         tab = 'home';
-        renderAll();
+        closeModal();
       } else toast(r.error, 'bad');
       break;
     }
+    case 'explore-open':
+      openExplore();
+      break;
+    case 'floor':
+      viewFloor = id === 'b8' ? 'b8' : 'b7';
+      scene.setView(viewFloor);
+      syncLift();
+      updateHud();
+      break;
     case 'cat':
       shelfCat = (el.dataset.c as Cat | 'all') ?? 'all';
       renderPanel();
@@ -1504,7 +1549,7 @@ function openRescue(): void {
     <div class="vis"><img class="pt lg" src="${profPortraitURL(r.prof)}" alt=""></div>
     <p class="story">낡은 무전기에서 가느다란 목소리가 반복된다. "${z.name}… 누구 없어요… 저는 <b>${pd.title}</b>입니다… 도와주세요…"</p>
     <p class="sm">${z.icon} ${z.name} · ⏱ ${timeText(r.deadline - Date.now())} 안에 도착해야 해요.</p>
-    <p class="dim sm">탐사 탭에서 그 구역으로 탐사대를 꾸려 <b>구조 신호를 따라 나가기</b>를 누르세요. 들키면 구하지 못합니다. 자리(침대)가 있어야 데려올 수 있어요.</p>
+    <p class="dim sm">엘리베이터의 <b>🛗 탐사</b> 버튼에서 그 구역으로 탐사대를 꾸려 <b>구조 신호를 따라 나가기</b>를 누르세요. 들키면 구하지 못합니다. 자리(침대)가 있어야 데려올 수 있어요.</p>
     <button class="btn primary wide" data-act="rescue-tab">구조대 꾸리러 가기</button>
     <button class="btn wide" data-act="close">닫기</button>`,
   );

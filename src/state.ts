@@ -319,9 +319,9 @@ export interface GuideStep {
 export function guideSteps(s: State): GuideStep[] {
   return [
     { id: 'crew', label: '첫 동료 맞이하기', hint: '문 앞에 사람이 오면 눌러서 이야기를 들어 보세요', done: s.crew.length >= 1 },
-    { id: 'send', label: '탐사 보내기', hint: '탐사 탭에서 동네 슈퍼마트로 보내 보세요', done: s.exps.length > 0 || s.stats.expeditions > 0 },
+    { id: 'send', label: '탐사 보내기', hint: '엘리베이터의 탐사 버튼으로 동네 슈퍼마트에 보내 보세요', done: s.exps.length > 0 || s.stats.expeditions > 0 },
     { id: 'bag', label: '돌아온 배낭 열기', hint: '배낭을 눌러야 물자가 비축에 들어와요', done: s.stats.expeditions > 0 },
-    { id: 'role', label: '맡은 일 정해 주기', hint: '생존자 탭에서 방어조·생산조를 골라 보세요', done: s.crew.some((id) => (s.role[id] ?? 'scout') !== 'scout') },
+    { id: 'role', label: '맡은 일 정해 주기', hint: '생존자 탭에서 방어조·생산조를 골라 보세요 (생산조는 B8 생산실에서 일해요)', done: s.crew.some((id) => (s.role[id] ?? 'scout') !== 'scout') },
     { id: 'trade', label: '떠돌이 상인과 거래하기', hint: '곧 상인이 지나가요. 병마개로 물자를 사 보세요', done: s.guide.trade },
   ];
 }

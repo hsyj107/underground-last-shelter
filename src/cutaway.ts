@@ -6,6 +6,7 @@ const W = 120;
 const TOP = 18; // 지상
 const ROW = 22; // 한 층 높이
 const BAND = 16; // 지상과 지하 7층 사이, 지하 1~6층을 지나는 구간
+const PROD_ROW = 22; // 지하 7층 바로 아래 생산실(지하 8층): 늘 있는 층
 
 const cache = new Map<string, string>();
 
@@ -21,7 +22,7 @@ export function cutawayURL(floor: number, used: number, sick = 0): string {
   const key = `${floor}|${used}|${sick}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const H = TOP + BAND + FLOORS.length * ROW;
+  const H = TOP + BAND + FLOORS.length * ROW + PROD_ROW;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
@@ -57,7 +58,29 @@ export function cutawayURL(floor: number, used: number, sick = 0): string {
   let seat = 0;
   let prevCap = 0;
   FLOORS.forEach((f, i) => {
-    const y = TOP + BAND + i * ROW;
+    const y = TOP + BAND + i * ROW + (i >= 1 ? PROD_ROW : 0);
+    if (i === 1) {
+      // 지하 8층: 생산실. 재배 선반과 정수 탱크가 있는 늘 열린 층
+      const py = y - PROD_ROW;
+      rect(0, py, W, PROD_ROW, '#4a5a4e');
+      rect(0, py, W, 2, '#2f3a32');
+      rect(0, py + PROD_ROW - 3, W, 3, '#2a2f2a');
+      rect(4, py, 9, PROD_ROW, '#2d2e34');
+      rect(8, py, 1, PROD_ROW, '#4a4c55');
+      for (let k = 0; k < 2; k++) {
+        const sx = 20 + k * 34;
+        rect(sx, py + 4, 28, 1, '#ff9aff');
+        rect(sx, py + 8, 28, 3, '#3a3a46');
+        for (let q = 0; q < 6; q++) rect(sx + 2 + q * 4, py + 6 - (q % 2), 1, 3 + (q % 2), '#6fcf4a');
+        rect(sx, py + 14, 28, 3, '#3a3a46');
+        for (let q = 0; q < 6; q++) rect(sx + 2 + q * 4, py + 12 - (q % 3 === 0 ? 1 : 0), 1, 3, '#58b83c');
+      }
+      rect(90, py + 4, 8, 14, '#6a7a8a');
+      rect(92, py + 7, 4, 8, '#6ec6ff');
+      rect(102, py + 12, 10, 6, '#7a5a34');
+      drawText(g, 'B8', W - 15, py + 2, '#9fd08a');
+      rect(0, py + PROD_ROW - 1, W, 1, '#0d0907');
+    }
     if (i <= floor) {
       // 열린 층: 벽 · 바닥 · 전등
       rect(0, y, W, ROW, '#4d3a2b');
@@ -100,7 +123,7 @@ export function cutawayURL(floor: number, used: number, sick = 0): string {
       for (let k = 0; k < 30; k++) rect(Math.floor(hash(k + i * 31) * W), y + Math.floor(hash(k + 5) * ROW), 1, 1, '#2d2218');
     }
     // 층 번호 (지하 7층부터)
-    drawText(g, `B${7 + i}`, W - 15, y + 2, i <= floor ? '#e8d6a8' : '#5e5040');
+    drawText(g, `B${i === 0 ? 7 : 8 + i}`, W - 15, y + 2, i <= floor ? '#e8d6a8' : '#5e5040');
     // 층 구분선
     rect(0, y + ROW - 1, W, 1, '#0d0907');
   });
