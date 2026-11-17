@@ -175,7 +175,7 @@ function roomHtml(g: Game, d: FacilityDef): string {
     return `<div class="room locked" data-act="room" data-arg="${d.id}"><b class="fl">${d.floor}</b> ${d.name} <span class="tag">잠김</span><div class="sub">${esc(need || '복구 가능')}</div></div>`;
   }
   const st = facilityState(g, d.id);
-  return `<div class="room ${st === 'idle' ? 'idle' : st === 'active' ? 'live' : ''}" data-act="room" data-arg="${d.id}">
+  return `<div class="room tone-${d.id} ${st === 'idle' ? 'idle' : st === 'active' ? 'live' : ''}" data-act="room" data-arg="${d.id}">
     <img class="roomimg" src="assets/rooms/room-${d.id}.png" alt="">
     <div class="plate"><b>${d.floor}</b>${d.name} Lv.${level}${st === 'active' ? '' : ' · 운영 중지'}</div></div>`;
 }
