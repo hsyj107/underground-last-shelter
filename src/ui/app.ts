@@ -1,8 +1,8 @@
 import {
-  AREAS, BACKGROUNDS, FACILITY_DEFS, JOB_LABEL, MAX_FACILITY_LEVEL, POLICIES, TITLES, upgradeCost, xpToNext,
+  AREAS, BACKGROUNDS, FACILITY_DEFS, JOB_LABEL, MAX_FACILITY_LEVEL, POLICIES, TITLES, upgradeCost, xpToNext, type FacilityDef,
 } from '../sim/data';
 import {
-  alive, assign, atBunker, byId, capacity, dangerLabel, endDay, facilityState, forecast, newGame, resLabel,
+  assign, atBunker, byId, capacity, dangerLabel, endDay, facilityState, forecast, newGame, resLabel,
   resolveSerum, setException, setMemorial, setPolicy, startExpedition, unlockConditions, unlockFacility, upgradeFacility,
   workersOf, type ActionResult,
 } from '../sim/engine';
@@ -15,16 +15,17 @@ import { RES_KEYS, type Exception, type FacilityId, type Game, type LogEntry, ty
  * 모든 버튼은 data-act / data-arg 로 이 파일의 act() 에 연결된다.
  */
 
-type Tab = 'status' | 'crew' | 'fac' | 'ops' | 'policy' | 'rec';
+type Tab = 'ops' | 'shelter' | 'crew' | 'policy' | 'rec';
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'status', label: '상황' }, { id: 'crew', label: '인원' }, { id: 'fac', label: '시설' },
-  { id: 'ops', label: '원정' }, { id: 'policy', label: '정책' }, { id: 'rec', label: '기록' },
+  { id: 'ops', label: '탐험' }, { id: 'shelter', label: '쉘터' }, { id: 'crew', label: '생존자' },
+  { id: 'policy', label: '정책' }, { id: 'rec', label: '기록' },
 ];
 
 interface UiState {
   tab: Tab;
+  /** 쉘터에서 방이나 생존자를 눌렀을 때 아래에서 올라오는 창 */
+  sheet: { kind: 'room' | 'crew'; id: string } | null;
   crew: string | null;
-  fac: FacilityId | null;
   area: string | null;
   team: string[];
   /** 신규 접속 화면에서 고른 값 */
@@ -33,7 +34,7 @@ interface UiState {
   toast: string;
 }
 
-const ui: UiState = { tab: 'status', crew: null, fac: null, area: null, team: [], nick: '', bg: 0, toast: '' };
+const ui: UiState = { tab: 'shelter', sheet: null, crew: null, area: null, team: [], nick: '', bg: 0, toast: '' };
 let game: Game | null = null;
 let root: HTMLElement;
 let modal: string | null = null;
@@ -90,10 +91,10 @@ function header(g: Game): string {
 function tabs(g: Game): string {
   const crewAlert = atBunker(g).some((s) => s.status === 'critical' || s.stress >= 85);
   return `<nav class="tabs">${TABS.map((t) =>
-    `<button data-act="tab" data-arg="${t.id}" class="${ui.tab === t.id ? 'on' : ''}">${t.label}${t.id === 'crew' && crewAlert ? '<span class="dot">●</span>' : ''}${t.id === 'status' && g.pending ? '<span class="dot">●</span>' : ''}</button>`).join('')}</nav>`;
+    `<button data-act="tab" data-arg="${t.id}" class="${ui.tab === t.id ? 'on' : ''}">${t.label}${t.id === 'crew' && crewAlert ? '<span class="dot">●</span>' : ''}${t.id === 'shelter' && g.pending ? '<span class="dot">●</span>' : ''}</button>`).join('')}</nav>`;
 }
 
-function viewStatus(g: Game): string {
+function alertsHtml(g: Game): string {
   const f = forecast(g);
   const alerts: string[] = [];
   if (g.pending) alerts.push(`<div class="alert">⚠ 결정이 필요합니다. <button class="btn sm" data-act="decision">열기</button></div>`);
@@ -109,17 +110,71 @@ function viewStatus(g: Game): string {
   }
   const idle = FACILITY_DEFS.filter((d) => facilityState(g, d.id) === 'idle');
   if (idle.length > 0) alerts.push(`<div class="alert warn">담당자 없음: ${idle.map((d) => d.name).join(', ')}</div>`);
-
-  const here = atBunker(g);
-  const rows = RES_KEYS.map((k) => `<tr><td>${resLabel(k)}</td><td>${Math.round(g.stock[k])}</td><td class="${f.net[k] < 0 ? 'bad' : 'good'}">${signed(f.net[k])}</td></tr>`).join('');
-  const log = [...g.log].slice(-8).reverse().map(logLine).join('');
-  return `${alerts.join('') || '<p class="note">이상 징후 없음.</p>'}
-    <h2>상황 요약</h2>
-    <p class="note">생존자 ${alive(g).length}/${capacity(g)} (벙커 ${here.length} · 원정 ${alive(g).length - here.length}) · 배급 정책: ${esc(POLICIES.find((p) => p.id === g.policy)?.name ?? '')}</p>
-    <table><tr><th>자원</th><th>보유</th><th>오늘 예상 수지</th></tr>${rows}</table>
-    <p class="note" style="margin-top:6px">예상 수지 = 시설 생산 − 가동 비용 − 배급. 원정 전리품은 포함되지 않습니다.</p>
-    <h2>최근 기록</h2><div class="log">${log}</div>`;
+  return alerts.slice(0, 4).join('');
 }
+
+// ───────── 쉘터 단면 ─────────
+
+/** 생존자가 방 안에서 서 있는 위치(%). 화면 갱신 때 튀지 않도록 기억해 둔다. */
+const walkX = new Map<string, number>();
+const hash = (id: string): number => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+
+/** 배치된 시설이 있으면 거기, 없으면 숙소에서 쉰다 */
+function homeOf(g: Game, s: Survivor): FacilityId {
+  return s.post && g.facilities[s.post] > 0 ? s.post : 'dormitory';
+}
+
+function surfaceHtml(g: Game): string {
+  const away = g.survivors.filter((s) => s.status === 'away');
+  const zombies = [12, 34, 58, 81].map((x, i) => `<i class="zb" style="left:${x}%;animation-delay:${-i * 1.7}s"></i>`).join('');
+  const team = away.map((s, i) => `<span class="awaysv" style="left:${30 + i * 9}%"><img src="assets/characters/${esc(s.sprite)}.png" alt=""></span>`).join('');
+  return `<div class="surface"><div class="skyline"></div>${zombies}${team}
+    <span class="surf-tag">지상${away.length ? ` · 원정 ${away.length}명` : ''}</span></div>`;
+}
+
+function roomHtml(g: Game, d: FacilityDef): string {
+  const level = g.facilities[d.id];
+  if (level <= 0) {
+    const need = unlockConditions(g, d.id).filter((c) => !c.met).map((c) => c.text).join(' · ');
+    return `<div class="room locked" data-act="room" data-arg="${d.id}">B${d.floor} ${d.name} <span class="tag">잠김</span><div class="sub">${esc(need || '복구 가능')}</div></div>`;
+  }
+  const st = facilityState(g, d.id);
+  const here = atBunker(g).filter((s) => homeOf(g, s) === d.id);
+  const svs = here.map((s, i) => {
+    const x = walkX.get(s.id) ?? (walkX.set(s.id, 14 + ((hash(s.id) + i * 23) % 70)), walkX.get(s.id) as number);
+    const cls = [s.status === 'sick' || s.status === 'injured' ? 'sick' : '', s.status === 'critical' ? 'crit' : '', s.stress >= 85 ? 'mad' : ''].join(' ');
+    return `<div class="sv ${cls}" data-act="crewsheet" data-arg="${s.id}" data-d="1" style="left:${x}%">
+      <span class="nm">${s.named ? '★' : ''}${esc(s.name)}</span>${s.status === 'critical' || s.stress >= 85 ? '<span class="bang">!</span>' : ''}
+      <img src="assets/characters/${esc(s.sprite)}.png" alt=""></div>`;
+  }).join('');
+  return `<div class="room ${st === 'idle' ? 'idle' : ''}" data-act="room" data-arg="${d.id}">
+    <img class="roomimg" src="assets/rooms/room-${d.id}.png" alt="">
+    <div class="plate">B${d.floor} ${d.name} Lv.${level} ${st === 'active' ? '' : '· 운영 중지'}</div>${svs}</div>`;
+}
+
+function viewShelter(g: Game): string {
+  const last = [...g.log].slice(-2).reverse().map(logLine).join('');
+  return `${alertsHtml(g)}${surfaceHtml(g)}${FACILITY_DEFS.map((d) => roomHtml(g, d)).join('')}
+    <div class="log ticker">${last}</div>`;
+}
+
+/** 방 안 생존자가 천천히 걸어 다닌다 (화면을 다시 그리지 않고 위치만 바꾼다) */
+function wander(): void {
+  if (!game) return;
+  const g = game;
+  root.querySelectorAll<HTMLElement>('.sv').forEach((el) => {
+    const id = el.dataset.arg ?? '';
+    const s = byId(g, id);
+    if (!s || s.status === 'critical' || Math.random() < 0.35) return;
+    const cur = walkX.get(id) ?? 50;
+    const working = s.post !== null && g.facilities[s.post] > 0;
+    const next = clamp((working ? cur + (Math.random() - 0.5) * 22 : 8 + Math.random() * 80), 8, 88);
+    el.dataset.d = next >= cur ? '1' : '-1';
+    el.style.left = `${next}%`;
+    walkX.set(id, next);
+  });
+}
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 function logLine(e: LogEntry): string {
   const cls = e.kind === 'bad' || e.kind === 'death' ? 'bad' : e.kind === 'good' ? 'good' : e.kind === 'warn' ? 'warn' : '';
@@ -132,8 +187,8 @@ function viewCrew(g: Game): string {
   return `<p class="note">생존자 ${list.length}/${capacity(g)}. 인원을 눌러 배치와 배급 예외를 지정합니다.</p>` + list.map((s) => crewCard(g, s)).join('');
 }
 
-function crewCard(g: Game, s: Survivor): string {
-  const open = ui.crew === s.id;
+function crewCard(g: Game, s: Survivor, forceOpen = false): string {
+  const open = forceOpen || ui.crew === s.id;
   const ex = s.exception === 'special' ? '<span class="tag good">특식</span>' : s.exception === 'withhold' ? '<span class="tag bad">배급 제외</span>' : '';
   let detail = '';
   if (open) {
@@ -151,7 +206,7 @@ function crewCard(g: Game, s: Survivor): string {
         <button class="btn sm ${s.exception === 'withhold' ? 'red' : 'ghost'}" data-act="ex" data-arg="${s.id}|withhold">배급 제외</button></div>
     </div>`;
   }
-  return `<div class="card tap ${open ? 'on' : ''}" data-act="crew" data-arg="${s.id}">
+  return `<div class="card ${forceOpen ? '' : 'tap'} ${open ? 'on' : ''}" ${forceOpen ? '' : `data-act="crew" data-arg="${s.id}"`}>
     <div class="card-head">${portrait(s)}<div class="card-main">
       <div class="title">${esc(s.name)}<span class="tag ${s.named ? 'named' : ''}">${s.named ? '네임드' : '일반'}</span>${statusTag(s)}${ex}</div>
       <div class="sub">${JOB_LABEL[s.job]} · ${Math.floor(s.age)}세 · ${esc(s.trait)} · ${s.status === 'away' ? '원정 중' : facName(s.post)}</div>
@@ -159,28 +214,10 @@ function crewCard(g: Game, s: Survivor): string {
     </div></div>${detail}</div>`;
 }
 
-function viewFac(g: Game): string {
-  const rows = FACILITY_DEFS.map((d) => {
-    const st = facilityState(g, d.id);
-    const w = workersOf(g, d.id)[0];
-    const tag = st === 'locked' ? '<span class="tag">잠김</span>' : st === 'active' ? '<span class="tag good">가동</span>' : '<span class="tag bad">운영 중지</span>';
-    const open = ui.fac === d.id;
-    return `<div class="card tap ${open ? 'on' : ''}" data-act="fac" data-arg="${d.id}">
-      <div class="title">B${d.floor} ${d.name} ${g.facilities[d.id] > 0 ? `Lv.${g.facilities[d.id]}` : ''} ${tag}</div>
-      <div class="sub">${st === 'locked' ? '개방 조건을 충족해 복구하세요' : w ? `담당: ${esc(w.name)}` : '담당자 없음 — 가동되지 않습니다'}</div>
-      ${open ? facDetail(g, d.id) : ''}</div>`;
-  }).join('');
-  return `<p class="note">시설은 담당자가 있어야 가동되며, 가동 중에는 전력 등을 소모합니다.</p>${rows}`;
-}
-
 function facDetail(g: Game, id: FacilityId): string {
   const d = FACILITY_DEFS.find((x) => x.id === id)!;
-  const st = facilityState(g, id);
   const level = g.facilities[id];
   const fmt = (o: Partial<Record<string, number>>): string => RES_KEYS.filter((k) => o[k]).map((k) => `${resLabel(k)} ${o[k]}`).join(', ') || '없음';
-  const cam = `<div class="cctv ${st === 'active' ? '' : 'off'}"><img src="assets/rooms/room-${id}.png" alt="">
-    <span class="cam">CAM B${d.floor}</span><span class="rec">${st === 'active' ? '● REC' : ''}</span>
-    ${st === 'locked' ? '<div class="nosig">NO SIGNAL</div>' : st === 'idle' ? '<div class="nosig">운영 중지</div>' : ''}</div>`;
   let action = '';
   if (level <= 0) {
     const conds = unlockConditions(g, id);
@@ -193,7 +230,7 @@ function facDetail(g: Game, id: FacilityId): string {
       ${staff.map((s) => `<button class="btn sm ${s.post === id ? '' : 'ghost'}" data-act="assign" data-arg="${s.id}|${id}">${esc(s.name)}</button>`).join('')}</div>
       <button class="btn" style="margin-top:8px" data-act="upgrade" data-arg="${id}" ${level >= MAX_FACILITY_LEVEL || g.stock.scrap < upgradeCost(level) ? 'disabled' : ''}>${level >= MAX_FACILITY_LEVEL ? '최고 레벨' : `확장 Lv.${level + 1} (고철 ${upgradeCost(level)})`}</button>`;
   }
-  return `<div style="margin-top:8px" data-stop="1">${cam}<p class="note">${d.desc}</p>
+  return `<div style="margin-top:8px" data-stop="1"><p class="note">${d.desc}</p>
     <p class="note">생산: ${fmt(d.produce)} · 가동 비용: ${fmt(d.upkeep)}<br>효과: ${d.effect}</p>${action}</div>`;
 }
 
@@ -307,20 +344,37 @@ function render(): void {
   const g = game;
   let body = '';
   switch (ui.tab) {
-    case 'status': body = viewStatus(g); break;
+    case 'shelter': body = viewShelter(g); break;
     case 'crew': body = viewCrew(g); break;
-    case 'fac': body = viewFac(g); break;
     case 'ops': body = viewOps(g); break;
     case 'policy': body = viewPolicy(g); break;
     case 'rec': body = viewRec(g); break;
   }
-  root.innerHTML = `<div class="crt">${header(g)}${tabs(g)}<main class="view">${body}</main>
+  root.innerHTML = `<div class="crt">${header(g)}<main class="view ${ui.tab}">${body}</main>
     <footer class="foot"><div class="clock" id="clock">${clockText(g)}</div>
-      <button class="btn sm ghost" data-act="endday" title="시험용">⏩ 시험용: 하루 즉시 진행</button></footer>
-    ${modal === 'report' || modal === 'decision' ? modalHtml : ''}
+      <button class="btn sm ghost" data-act="endday" title="시험용">⏩ 시험용: 하루 즉시 진행</button></footer>${tabs(g)}
+    ${sheetHtml(g)}${modal === 'report' || modal === 'decision' ? modalHtml : ''}
     ${ui.toast ? `<div class="toast">${esc(ui.toast)}</div>` : ''}</div>`;
   const view = root.querySelector('.view');
   if (view) view.scrollTop = keep;
+}
+
+function sheetHtml(g: Game): string {
+  if (!ui.sheet) return '';
+  let body = '';
+  if (ui.sheet.kind === 'crew') {
+    const s = byId(g, ui.sheet.id);
+    if (!s || s.status === 'dead') return '';
+    body = crewCard(g, s, true);
+  } else {
+    const d = FACILITY_DEFS.find((x) => x.id === ui.sheet?.id);
+    if (!d) return '';
+    const level = g.facilities[d.id];
+    const st = facilityState(g, d.id);
+    const tag = st === 'locked' ? '<span class="tag">잠김</span>' : st === 'active' ? '<span class="tag good">가동</span>' : '<span class="tag bad">운영 중지</span>';
+    body = `<div class="card on"><div class="title">B${d.floor} ${d.name} ${level > 0 ? `Lv.${level}` : ''} ${tag}</div>${facDetail(g, d.id)}</div>`;
+  }
+  return `<div class="sheet-bg" data-act="closeSheet"></div><div class="sheet">${body}<button class="btn ghost" style="margin-top:8px" data-act="closeSheet">닫기</button></div>`;
 }
 
 function clockText(g: Game): string {
@@ -397,7 +451,7 @@ function act(name: string, arg: string): void {
     game = newGame({ nickname: nick, background: b.name, command: b.command, logistics: b.logistics, analysis: b.analysis }, Math.random, Date.now(), dayMsSetting());
     ui.toast = '';
     modal = null;
-    ui.tab = 'status';
+    ui.tab = 'shelter';
     saveGame(game);
     render();
     return;
@@ -406,9 +460,11 @@ function act(name: string, arg: string): void {
   const g = game;
 
   switch (name) {
-    case 'tab': ui.tab = arg as Tab; break;
+    case 'tab': ui.tab = arg as Tab; ui.sheet = null; break;
+    case 'room': ui.sheet = { kind: 'room', id: arg }; break;
+    case 'crewsheet': ui.sheet = { kind: 'crew', id: arg }; break;
+    case 'closeSheet': ui.sheet = null; break;
     case 'crew': ui.crew = ui.crew === arg ? null : arg; break;
-    case 'fac': ui.fac = ui.fac === arg ? null : (arg as FacilityId); break;
     case 'area': ui.area = ui.area === arg ? null : arg; ui.team = []; break;
     case 'team':
       ui.team = ui.team.includes(arg) ? ui.team.filter((x) => x !== arg) : ui.team.length < 3 ? [...ui.team, arg] : ui.team;
@@ -500,6 +556,7 @@ export function startApp(el: HTMLElement): void {
     const c = root.querySelector('#clock');
     if (c) c.textContent = clockText(game);
   }, 1000);
+  window.setInterval(wander, 2800);
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) advance();
   });
