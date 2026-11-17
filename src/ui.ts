@@ -194,6 +194,9 @@ export function startApp(root: HTMLElement): void {
       items: S.items,
       present: homeCrew(S, Date.now()),
       visitor: S.visitor,
+      roles: S.role,
+      sick: Object.keys(S.sick),
+      alert: !!S.raid,
       bags: S.exps.filter((e) => e.end <= Date.now()).length,
       hour: new Date().getHours(),
     }),
@@ -420,9 +423,15 @@ function rolesHtml(now: number): string {
   if (!S.crew.length) return '';
   const cnt = (r: Role): number => S.crew.filter((id) => roleOf(S, id) === r).length;
   const wb = Math.round(workBoost(S) * 100);
+  const fl = flow(S, now);
+  const wk = 1 + workBoost(S);
+  const addF = fl.prod.food - fl.prod.food / wk;
+  const addW = fl.prod.water - fl.prod.water / wk;
   const sick = Object.keys(S.sick).length;
   return `<section class="card"><h3>🛡 벙커 살림</h3>
-    <p class="sm">🎒 탐사조 <b>${cnt('scout') + 1}</b> · 🌱 생산조 <b>${cnt('work')}</b> ${wb ? `<span class="ok">(식량·식수 +${wb}%)</span>` : ''} · 🛡 방어조 <b>${cnt('guard')}</b></p>
+    <p class="sm">🎒 탐사조 <b>${cnt('scout') + 1}</b> · 🌱 생산조 <b>${cnt('work')}</b> ${wb ? `<span class="ok">(식량·식수 +${wb}%)</span>` : ''}</p>
+    ${wb ? `<p class="ok sm">🌱 생산조가 밭과 정수 통을 돌봐요 → 🍞 +${fmt2(addF)}/분 · 💧 +${fmt2(addW)}/분</p>` : '<p class="dim sm">🌱 생산조를 정하면 밭과 정수 통이 생기고 식량·식수가 늘어요.</p>'}
+    <p class="sm"> · 🛡 방어조 <b>${cnt('guard')}</b></p>
     <p class="sm">문을 지키는 힘 <b>${defense(S, now)}</b> ${cnt('guard') ? '' : '<em class="warn">— 방어조가 없어요. 습격과 층 돌파에는 방어조가 필요해요.</em>'}</p>
     ${sick ? `<p class="bad sm">🤒 앓는 사람 ${sick}명 — 생존자 탭에서 치료하세요.</p>` : ''}
     <p class="dim sm">생존자 탭에서 사람을 눌러 맡은 일을 정할 수 있어요.</p></section>`;

@@ -19,6 +19,11 @@ export interface SceneModel {
   /** 매장에 있는 사람들 ('me' 포함) */
   present: string[];
   visitor: string | null;
+  /** 맡은 일: 방어조는 문 앞을 지키고 생산조는 밭·정수기에서 일한다 */
+  roles: Record<string, string>;
+  sick: string[];
+  /** 습격 중이면 방어조가 경계 태세 */
+  alert: boolean;
   bags: number;
   hour: number;
 }
@@ -39,6 +44,8 @@ interface Walker {
   speed: number;
   moving: boolean;
   seed: number;
+  /** 맡은 자리가 있으면 거기서 움직이지 않는다 */
+  post: { x: number; face: 1 | -1; kind: 'guard' | 'work' } | null;
 }
 
 interface Zom {
@@ -121,6 +128,7 @@ export class Scene {
   private lastTs = 0;
   private flicker = 1;
   private nextFlicker = 2;
+  private workT = 0;
   private rand = seeded(42);
 
   constructor(
@@ -227,11 +235,52 @@ export class Scene {
           speed: 12 + this.rand() * 6,
           moving: true,
           seed: idx,
+          post: null,
         });
       }
     }
     for (const id of [...this.walkers.keys()]) if (!present.has(id)) this.walkers.delete(id);
+    const ok = (id: string): boolean => !m.sick.includes(id);
+    const guards = m.present.filter((id) => m.roles[id] === 'guard' && ok(id));
+    const workers = m.present.filter((id) => m.roles[id] === 'work' && ok(id));
     for (const w of this.walkers.values()) {
+      const gi = guards.indexOf(w.id);
+      const wi = workers.indexOf(w.id);
+      w.post = gi >= 0 ? { x: 38 + gi * 9, face: -1, kind: 'guard' } : wi >= 0 ? { x: 104 + (wi % 5) * 10, face: wi % 2 ? 1 : -1, kind: 'work' } : null;
+    }
+    // 일하는 곳에서 생산하는 느낌: 잎사귀와 물방울
+    this.workT -= dt;
+    if (this.workT <= 0 && workers.length) {
+      this.workT = 0.9 / Math.min(3, workers.length);
+      const farm = this.rand() < 0.6;
+      this.particles.push({
+        x: farm ? 112 + this.rand() * 22 : 146 + this.rand() * 4,
+        y: farm ? 143 : 146,
+        vx: (this.rand() - 0.5) * 6,
+        vy: -8 - this.rand() * 6,
+        life: 0,
+        max: 0.8,
+        kind: 'spark',
+        color: farm ? '#8ee06a' : '#6ec6ff',
+      });
+    }
+    for (const w of this.walkers.values()) {
+      if (w.post) {
+        const d = w.post.x - w.x;
+        if (Math.abs(d) < 1) {
+          w.moving = false;
+          w.dir = w.post.face;
+          continue;
+        }
+        w.moving = true;
+        w.dir = d > 0 ? 1 : -1;
+        w.x += w.dir * Math.min(Math.abs(d), (w.speed + 6) * dt);
+        continue;
+      }
+      if (!ok(w.id)) {
+        w.moving = false;
+        continue;
+      }
       if (w.pause > 0) {
         w.pause -= dt;
         w.moving = false;
@@ -341,6 +390,33 @@ export class Scene {
     for (let i = 0; i < 6; i++) {
       const px = ((this.t * (6 + i) + i * 31) % SW);
       ctx.fillRect(px, 8 + ((i * 9) % 26), 1, 1);
+    }
+  }
+
+  /** 생산조가 있을 때만 보이는 작은 밭과 정수 통 */
+  private drawStations(ctx: CanvasRenderingContext2D, m: SceneModel): void {
+    const n = m.present.filter((id) => m.roles[id] === 'work').length;
+    if (!n) return;
+    ctx.fillStyle = '#2b1d14';
+    ctx.fillRect(108, 146, 34, 7);
+    ctx.fillStyle = '#5a4030';
+    ctx.fillRect(109, 147, 32, 4);
+    for (let i = 0; i < 7; i++) {
+      const h = 2 + ((Math.floor(this.t * 0.8) + i * 3) % 5);
+      ctx.fillStyle = '#4f9a3c';
+      ctx.fillRect(111 + i * 4, 146 - h, 1, h);
+      ctx.fillStyle = '#8ee06a';
+      ctx.fillRect(110 + i * 4, 146 - h, 3, 1);
+    }
+    ctx.fillStyle = '#3a4a5a';
+    ctx.fillRect(144, 134, 10, 18);
+    ctx.fillStyle = '#6ec6ff';
+    ctx.fillRect(146, 136, 6, 3);
+    ctx.fillStyle = '#2b2b30';
+    ctx.fillRect(147, 152, 4, 1);
+    if (Math.floor(this.t * 2) % 2 === 0) {
+      ctx.fillStyle = '#6ec6ff';
+      ctx.fillRect(148, 153, 1, 2);
     }
   }
 
@@ -485,7 +561,36 @@ export class Scene {
         y: w.lane,
         draw: () => {
           if (d.look.cat) drawCat(ctx, w.x, w.lane, this.t * 1000, w.dir, w.moving);
-          else drawPerson(ctx, d.look, w.x, w.lane, { frame, moving: w.moving, dir: w.dir });
+          else {
+            const working = w.post?.kind === 'work' && !w.moving;
+            const bob = working && Math.floor(this.t * 3 + w.seed) % 2 === 0 ? 1 : 0;
+            drawPerson(ctx, d.look, w.x, w.lane + bob, { frame, moving: w.moving, dir: w.dir });
+            const px = Math.round(w.x);
+            const fx = w.dir > 0 ? 1 : -1;
+            if (w.post?.kind === 'guard' && !w.moving) {
+              // 소총을 들고 문 쪽을 노려본다. 습격 중에는 총구를 치켜든다.
+              const up = m.alert ? 5 : 0;
+              ctx.fillStyle = '#2b2b30';
+              ctx.fillRect(px + fx * 3 - (fx < 0 ? 7 : 0), w.lane - 8 - up, 8, 1);
+              ctx.fillStyle = '#6a4a2a';
+              ctx.fillRect(px + fx * 3 - (fx < 0 ? 2 : 0), w.lane - 8 - up, 3, 2);
+              if (m.alert && Math.floor(this.t * 4) % 2 === 0) {
+                ctx.fillStyle = '#ff5a4a';
+                ctx.fillRect(px - 1, w.lane - 20, 3, 3);
+              }
+            } else if (working) {
+              // 호미질
+              const sw = Math.floor(this.t * 3 + w.seed) % 2;
+              ctx.fillStyle = '#8a6d4b';
+              ctx.fillRect(px + fx * 4 - (fx < 0 ? 1 : 0), w.lane - 9 + sw * 2, 1, 7);
+              ctx.fillStyle = '#b8b0a0';
+              ctx.fillRect(px + fx * 4 - (fx < 0 ? 3 : 0), w.lane - 3 + sw * 2, 3, 1);
+            }
+            if (m.sick.includes(w.id) && Math.floor(this.t * 2) % 2 === 0) {
+              ctx.fillStyle = '#7fd05a';
+              ctx.fillRect(px - 1, w.lane - 21, 3, 3);
+            }
+          }
         },
       });
     }
@@ -510,6 +615,7 @@ export class Scene {
         },
       });
     }
+    this.drawStations(ctx, m);
     list.sort((a, b) => a.y - b.y).forEach((e) => e.draw());
   }
 
