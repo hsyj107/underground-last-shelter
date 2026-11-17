@@ -5,7 +5,7 @@ import { drawText } from './sprites.ts';
 const W = 120;
 const TOP = 18; // 지상
 const ROW = 22; // 한 층 높이
-const BAND = 42; // 지상과 지하 7층 사이, 지하 1~6층을 지나는 구간
+const BAND = 16; // 지상과 지하 7층 사이, 지하 1~6층을 지나는 구간
 
 const cache = new Map<string, string>();
 
@@ -45,16 +45,12 @@ export function cutawayURL(floor: number, used: number, sick = 0): string {
   rect(81, TOP - 11, 4, 2, '#7ea06b');
   rect(99, TOP - 11, 4, 2, '#7ea06b');
 
-  // 지하 1~6층: 버려진 층들. 승강기 통로만 곧게 내려간다.
-  const FL = BAND / 6;
-  rect(0, TOP, W, BAND, '#1d1915');
-  for (let i = 0; i < 6; i++) {
-    const fy = TOP + i * FL;
-    rect(0, fy, W, 1, '#2d261f');
-    rect(0, fy + FL - 1, W, 1, '#0d0907');
-    for (let k = 0; k < 3; k++) rect(30 + k * 30 + ((i * 7) % 6), fy + 2, 6, 2, i === 2 && k === 1 ? '#6a2a22' : '#2e2619');
-    drawText(g, `B${i + 1}`, 16, fy + 1, '#9a8660');
-  }
+  // 지하 1~6층은 건너뛴다: 얇은 생략 구간. 승강기 통로만 곧게 내려간다.
+  rect(0, TOP, W, BAND, '#1a1612');
+  rect(0, TOP, W, 1, '#2d261f');
+  drawText(g, 'B1', 16, TOP + 1, '#9a8660');
+  for (let k = 0; k < 3; k++) rect(18, TOP + 7 + k * 2, 1, 1, '#6a5a46');
+  drawText(g, 'B6', 16, TOP + BAND - 6, '#9a8660');
   rect(4, TOP, 9, BAND, '#2d2e34');
   rect(8, TOP, 1, BAND, '#4a4c55');
 

@@ -6,7 +6,7 @@ export const SW = 180;
 /** 매장(지하 7층) 장면 안쪽 높이 */
 const SHS = 168;
 /** 지상과 지하 7층 사이, 지하 1~6층을 지나가는 구간 높이 */
-const DEPTH = 42;
+const DEPTH = 16;
 export const SH = SHS + DEPTH;
 
 const GROUND_Y = 40; // 지표면
@@ -337,40 +337,34 @@ export class Scene {
     ctx.restore();
   }
 
-  /** 지상에서 지하 7층까지 내려가는 동안 지나치는 지하 1~6층 (버려진 층과 승강기) */
+  /** 지상에서 지하 7층까지 내려가는 동안 건너뛴 층들: 얇은 생략 구간과 승강기만 보여 준다 */
   private drawDepth(ctx: CanvasRenderingContext2D): void {
     const y0 = STORE_TOP;
     const R = (x: number, y: number, w: number, h: number, c: string): void => {
       ctx.fillStyle = c;
       ctx.fillRect(x, y, w, h);
     };
-    const FL = DEPTH / 6;
-    R(0, y0, 160, DEPTH, '#1d1915');
-    for (let i = 0; i < 6; i++) {
-      const fy = y0 + i * FL;
-      R(0, fy, 160, 1, '#2d261f');
-      R(0, fy + FL - 1, 160, 1, '#0d0a08');
-      // 버려진 층: 희미한 창과 무너진 틈
-      for (let k = 0; k < 3; k++) R(26 + k * 44 + ((i * 13) % 9), fy + 2, 7, 2, i === 2 && k === 1 ? '#6a2a22' : '#2e2619');
-      R(((i * 37) % 120) + 20, fy + FL - 2, 5, 1, '#33291f');
-      drawText(ctx, `B${i + 1}`, 3, fy + 1, '#9a8660');
-    }
-    // 비상등이 깜박이는 층
-    if (Math.floor(this.t * 1.5) % 2 === 0) R(150, y0 + 2 * FL + 1, 2, 2, '#e04a3a');
-    // 승강기 통로가 층을 관통해 내려간다
+    R(0, y0, 160, DEPTH, '#1a1612');
+    R(0, y0, 160, 1, '#2d261f');
+    R(0, y0 + DEPTH - 1, 160, 1, '#0d0a08');
+    // 건너뛴 층 표시: B1 · · · B6
+    drawText(ctx, 'B1', 3, y0 + 1, '#9a8660');
+    for (let k = 0; k < 3; k++) R(5, y0 + 7 + k * 2, 1, 1, '#6a5a46');
+    drawText(ctx, 'B6', 3, y0 + DEPTH - 6, '#9a8660');
+    // 두꺼운 철근 콘크리트: 가는 균열과 배관
+    for (let x = 24; x < 158; x += 22) R(x, y0 + 3 + ((x * 3) % 7), 10, 1, '#2a231c');
+    R(40, y0 + 2, 1, DEPTH - 4, '#2a231c');
+    R(100, y0 + 2, 1, DEPTH - 4, '#2a231c');
+    // 승강기 통로: 케이블과 내려가는 승강기 칸
     R(160, y0, 16, DEPTH, '#1e1a1a');
     R(167, y0, 2, DEPTH, '#3a3636');
-    for (let i = 0; i < 6; i++) {
-      const fy = y0 + i * FL;
-      R(160, fy, 16, 1, '#4a4444');
-      R(162, fy + 1, 4, 3, '#2a2626');
-      R(170, fy + 1, 4, 3, '#2a2626');
-    }
-    const cy = y0 + ((this.t * 4) % (DEPTH - 6));
-    R(162, Math.floor(cy), 12, 6, '#6a6a72');
-    R(162, Math.floor(cy), 12, 1, '#8a8a92');
-    R(167, Math.floor(cy) + 1, 1, 5, '#222');
-    R(163, Math.floor(cy) + 2, 3, 2, '#ffd34d');
+    R(163, y0, 1, DEPTH, '#2d2929');
+    R(172, y0, 1, DEPTH, '#2d2929');
+    const cy = y0 + Math.floor((this.t * 4) % (DEPTH - 5));
+    R(162, cy, 12, 5, '#6a6a72');
+    R(162, cy, 12, 1, '#8a8a92');
+    R(167, cy + 1, 1, 4, '#222');
+    R(163, cy + 2, 3, 2, '#ffd34d');
     R(176, y0, 4, DEPTH, '#2b211a');
   }
 
