@@ -380,9 +380,9 @@ export function defense(s: State, now: number): number {
     const d = SURV_BY_ID[id];
     if (!d) continue;
     guards.push(id);
-    v += (d.stats.str * 2 + d.stats.agi) * (d.know.includes('security') ? 1.3 : 1);
+    v += (d.stats.str + d.stats.agi * 0.5) * (d.know.includes('security') ? 1.3 : 1);
   }
-  for (let i = 0; i < guards.length; i++) for (let j = i + 1; j < guards.length; j++) if (relOf(s, guards[i], guards[j]) === 'friend') v += 2;
+  for (let i = 0; i < guards.length; i++) for (let j = i + 1; j < guards.length; j++) if (relOf(s, guards[i], guards[j]) === 'friend') v += 1.5;
   if (!awaySet(s, now).has('me')) v += SURV_BY_ID.me.stats.str;
   return Math.round(v * (hasTrait(s, 'veteran') ? 1.2 : 1) * 10) / 10;
 }
@@ -812,7 +812,7 @@ export function deathChance(id: string, members: string[], s?: State, now = 0): 
   let p = Math.max(0.03, (0.5 - 0.04 * d.stats.str) * (1 - Math.min(0.4, 0.04 * medic)));
   // 친한 사람이 같이 가면 서로 챙긴다
   if (s && members.some((m) => m !== id && relOf(s, id, m) === 'friend')) p *= 0.85;
-  if (id === 'me') p *= 0.5; // 관리자는 보호받지만 죽을 수 있다
+  if (id === 'me') p *= 0.35; // 관리자는 보호받지만 죽을 수 있다
   if (s && hasTrait(s, 'calm')) p *= 0.9;
   if (s) {
     p *= rationDeathMult(s, now);

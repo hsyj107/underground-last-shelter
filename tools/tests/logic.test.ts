@@ -424,7 +424,7 @@ test('죽음: 안전한 구역에서는 아무도 죽지 않고, 전투가 센 �
   assert.ok(g.deathChance(sol, [sol]) < g.deathChance(kid, [kid]));
   // 의료 능력치가 높은 동료가 함께 가면 사망 확률이 내려간다
   assert.ok(g.deathChance(kid, [kid, nurse]) < g.deathChance(kid, [kid]));
-  // 관리자도 죽을 수 있지만 같은 능력치의 동료보다 절반만 위험하다
+  // 관리자도 죽을 수 있지만 같은 능력치의 동료보다 훨씬 덜 위험하다
   assert.ok(g.deathChance('me', ['me']) > 0);
   assert.ok(g.deathChance(kid, [kid]) >= 0.03);
 });
@@ -932,7 +932,7 @@ test('습격: 정하지 않고 두면 기한이 지나 자동으로 처리된다
   s.raid!.kind = 'raider';
   const out = e.tickEvents(s, s.raid!.deadline + 1);
   assert.ok(out.some((n) => n.type === 'raid_auto'));
-  assert.equal(s.raid, null);
+  assert.equal(s.log.paid, 1, '약탈자는 요구를 들어준 것으로 처리된다');
 });
 
 test('질병: 치료하면 낫고, 방치하면 죽는다', () => {

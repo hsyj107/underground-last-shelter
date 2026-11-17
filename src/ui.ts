@@ -104,6 +104,7 @@ import {
   marketMult,
 } from './events.ts';
 import type { Notice, RaidChoice, RaidResult, Gone } from './events.ts';
+import { cutawayURL } from './cutaway.ts';
 import { iconURL, lookPortraitURL, portraitURL, profPortraitURL } from './sprites.ts';
 
 type Tab = 'home' | 'explore' | 'shelf' | 'crew';
@@ -435,6 +436,7 @@ function floorHtml(): string {
   const beds = Array.from({ length: Math.max(cap, used) }, (_, i) => `<i class="bed ${i < used ? 'used' : ''}"></i>`).join('');
   return `<section class="card floor"><h3>${f.icon} 거주 구역 <small>${f.name}</small></h3>
     <p class="dim sm">${f.blurb}</p>
+    <img class="cutaway" src="${cutawayURL(S.floor, used, Object.keys(S.sick).length)}" alt="벙커 단면도">
     <div class="beds">${beds}</div>
     <p class="sm"><b>침대 ${used}/${cap}</b> ${used >= cap ? '<em class="bad">— 가득 찼어요. 새 손님을 받으려면 넓혀야 해요.</em>' : `<span class="dim">· ${cap - used}자리 남음</span>`}</p>
     ${
@@ -1474,7 +1476,7 @@ function openBreach(): void {
   const ratio = pv.defense / pv.power;
   openModal(
     'breach',
-    `<h2>⛏ ${pv.name} — 아래로 파고 내려간다</h2>
+    `<h2>⛏ 아래로 파고 내려간다 <small>${pv.name}</small></h2>
     <p class="story">새 층으로 통하는 문을 여는 순간, 어둠 속에 있던 것들이 한꺼번에 깨어난다.</p>
     <p class="sm">수용 ${capacity(S)}명 → <b>${nx.cap}명</b> · 공사비 ● ${fmt(pv.cost)}</p>
     <p class="sm ${ratio >= 1 ? 'ok' : ratio >= 0.7 ? 'warn' : 'bad'}">🛡 우리 방어력 <b>${pv.defense}</b> / 몰려오는 무리 <b>${pv.power}</b> — 방어조 ${guards}명${ratio >= 1.15 ? ' · 넉넉해요' : ratio >= 0.85 ? ' · 아슬아슬해요' : ' · 많이 모자라요'}</p>
