@@ -260,8 +260,8 @@ export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, o: Pose
         rect(7, 8 + bob, 1, 1, '#ffffff');
         break;
       case 'cap':
-        rect(2, -1 + hb, 8, 3, '#d83a3a');
-        rect(7, 1 + hb, 4, 1, '#a02a2a');
+        rect(2, -1 + hb, 8, 3, look.top);
+        rect(7, 1 + hb, 4, 1, look.top2);
         break;
     }
   }

@@ -617,6 +617,9 @@ export const PROF_FEMALE: Record<string, number> = {
   nurse: 0.85, teacher: 0.7, pharmacist: 0.6, baker: 0.6, oldlady: 1, bartender: 0.5,
   soldier: 0.2, firefighter: 0.15, police: 0.3, mechanic: 0.15, electrician: 0.15, plumber: 0.1, trucker: 0.1, rider: 0.3, doctor: 0.45,
 };
+/** 작업 모자를 쓰는 직업이 실제로 모자를 쓸 확률 (나머지는 기본 0.25). 다들 모자를 쓰면 구분이 안 된다 */
+export const CAP_CHANCE: Record<string, number> = { police: 1, firefighter: 0.7, courier: 0.5 };
+
 /** 치마를 입지 않는 제복·작업복 직업 */
 export const NO_SKIRT = new Set(['soldier', 'firefighter', 'police', 'mechanic', 'electrician', 'plumber', 'trucker', 'rider', 'paramedic', 'cleaner', 'cat']);
 

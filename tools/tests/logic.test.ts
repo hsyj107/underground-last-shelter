@@ -762,3 +762,30 @@ test('성별 정보가 없는 옛 저장도 머리 모양으로 짐작해서 불
   assert.equal(SURV_BY_ID[p.id].look.f, true);
   delete (globalThis as { localStorage?: unknown }).localStorage;
 });
+
+test('모자: 작업 모자는 직업마다 정해진 확률로만 쓴다 (경찰은 항상, 나머지는 드물게)', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0);
+  const rate = (id: string): number => {
+    let n = 0;
+    for (let i = 0; i < 400; i++) if (g.makePerson(s, PROFS.find((p) => p.id === id)!).look.acc.includes('cap')) n++;
+    s.people = {};
+    return n / 400;
+  };
+  assert.equal(rate('police'), 1);
+  const farmer = rate('farmer');
+  assert.ok(farmer > 0.12 && farmer < 0.4, `농부 모자 ${farmer}`);
+  // 전체 평균: 모자 쓴 사람이 10명 중 2명 안팎
+  let hats = 0;
+  let total = 0;
+  for (let i = 0; i < 200; i++) {
+    for (const prof of PROFS) {
+      if (prof.names === 'cat') continue;
+      const p = g.makePerson(s, prof);
+      total++;
+      if (p.look.acc.includes('cap')) hats++;
+    }
+    s.people = {};
+  }
+  assert.ok(hats / total < 0.15, `모자 비율 ${(hats / total).toFixed(2)}`);
+});

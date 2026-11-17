@@ -6,6 +6,7 @@ import {
   GIVEN_F,
   GIVEN_M,
   NO_SKIRT,
+  CAP_CHANCE,
   PROF_FEMALE,
   ITEMS,
   JOB_BY_ID,
@@ -400,6 +401,8 @@ function lookFor(prof: ProfDef, gender: Gender): Look {
   if (look.cat) return look;
   look.skin = choice(SKINS);
   look.hair = choice(prof.hairs ?? DARK_HAIRS);
+  // 작업 모자는 직업마다 정해진 확률로만 쓴다
+  if (look.acc.includes('cap') && rng() >= (CAP_CHANCE[prof.id] ?? 0.25)) look.acc = look.acc.filter((a) => a !== 'cap');
   const pool = gender === 'f' ? FEMALE_STYLES : MALE_STYLES;
   const fit = (prof.styles ?? []).filter((x) => pool.includes(x));
   look.style = choice(fit.length ? fit : pool.filter((x) => x !== 'bald' || (!look.kid && prof.names !== 'kid')));
