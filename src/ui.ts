@@ -20,6 +20,7 @@ import {
   SURV_BY_ID,
   UPGRADES,
   ZONES,
+  KNOW_NAME,
   ZONE_BY_ID,
 } from './data.ts';
 import type { Cat, Gender, Look, ResKey, Stats, UpgKey } from './data.ts';
@@ -400,15 +401,17 @@ function supplyHtml(now: number): string {
   return h;
 }
 
-function memberChip(id: string, now: number): string {
+function memberChip(id: string, now: number, zoneId = ''): string {
   const d = SURV_BY_ID[id];
   const away = awaySet(S, now).has(id);
   const tired = isTired(S, id, now);
   const on = sel.members.includes(id);
   const ok = !away && !tired;
   const note = away ? '탐사 중' : tired ? '부상' : id === 'me' ? '나' : `전투 ${d.stats.str}`;
-  return `<button class="chip ${on ? 'on' : ''}" data-act="member" data-id="${id}" ${ok ? '' : 'disabled'}>
-    ${pt(id, 'pt sm')}<b>${d.name}</b><small>${note}</small></button>`;
+  const zone = zoneId ? ZONES.find((z) => z.id === zoneId) : undefined;
+  const expert = !!zone && d.know.some((k) => zone.know.includes(k));
+  return `<button class="chip ${on ? 'on' : ''} ${expert ? 'exp' : ''}" data-act="member" data-id="${id}" ${ok ? '' : 'disabled'}>
+    ${pt(id, 'pt sm')}<b>${expert ? '🎓 ' : ''}${d.name}</b><small>${note}</small></button>`;
 }
 
 function exploreHtml(): string {
@@ -422,7 +425,7 @@ function exploreHtml(): string {
     h += `<section class="card zone ${open ? '' : 'locked'} ${cur ? 'cur' : ''}">
       <button class="zone-h" data-act="zone" data-id="${z.id}" ${open ? '' : 'disabled'}>
         <span class="zi">${open ? z.icon : '🔒'}</span>
-        <span class="zt"><b>${z.name}</b><small>${open ? z.blurb : `도감 ${z.unlock}종 발견 시 열려요 (${found}/${z.unlock})`}</small></span>
+        <span class="zt"><b>${z.name}</b><small>${open ? z.blurb : `도감 ${z.unlock}종 발견 시 열려요 (${found}/${z.unlock})`}</small>${open ? `<small class="know">🎓 ${z.know.map((k) => KNOW_NAME[k]).join(' · ')} 경험자 유리</small>` : ''}</span>
         <span class="zm"><i class="sk">${skulls}</i><small>${z.minutes}분~</small></span>
       </button>`;
     if (cur && open) {
@@ -433,13 +436,14 @@ function exploreHtml(): string {
       const deathList = pv
         ? sel.members.filter((m) => pv.deathIf[m] > 0).map((m) => `${SURV_BY_ID[m].name} ${Math.round(pv.deathIf[m] * 100)}%`).join(' · ')
         : '';
-      h += `<div class="team"><div class="chips">${crew.map((id) => memberChip(id, now)).join('')}</div>
+      h += `<div class="team"><div class="chips">${crew.map((id) => memberChip(id, now, z.id)).join('')}</div>
         ${
           pv
             ? `<div class="pv"><span>⏱ ${timeText(pv.ms)}</span><span>🎒 전리품 ${pv.loot}개</span>
                <span class="${riskPct > 25 ? 'bad' : riskPct > 0 ? 'warn' : 'ok'}">⚠ 들킬 확률 ${riskPct}%</span>
                <span class="${deathPct >= 10 ? 'bad' : deathPct > 0 ? 'warn' : 'ok'}">☠ 누군가 죽을 확률 ${deathPct}%</span></div>
                ${deathList ? `<p class="dim sm">들키면 죽을 확률: ${deathList}</p>` : ''}
+               ${pv.experts.length ? `<p class="ok sm">🎓 ${pv.experts.map((m) => SURV_BY_ID[m].name).join('·')}: 이 구역을 잘 알아요 (들킬 확률 -${Math.round((1 - 0.85 ** pv.experts.length) * 100)}% · 전리품 +${pv.experts.length} · 물자 +${15 * pv.experts.length}%)</p>` : ''}
                ${pv.friends ? `<p class="dim sm">🤝 친한 사이가 함께 가서 서로 챙겨요 (사망 확률 -15%)</p>` : ''}
                ${pv.rivals ? `<p class="warn sm">⚡ 사이 나쁜 두 사람이 함께 가요 (들킬 확률 +20%)</p>` : ''}`
             : '<div class="pv dim">함께 갈 사람을 골라 주세요.</div>'

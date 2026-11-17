@@ -508,6 +508,8 @@ export interface Preview {
   /** 같이 가는 사람들 사이의 친한 짝/불화 짝 수 */
   friends: number;
   rivals: number;
+  /** 이 구역을 잘 아는 사람들 (최대 2명까지 효과) */
+  experts: string[];
 }
 
 /** 들켰을 때 죽을 확률. 전투가 세면 낮고, 팀에 의료 능력치가 높은 사람이 있으면 더 낮다. */
@@ -540,6 +542,9 @@ export function previewExpedition(s: State, zoneId: string, members: string[], n
     }
     if (d.buff.kind === 'exp_loot') loot += Math.round(d.buff.value * buffScale(s, id));
   }
+  // 그 구역을 잘 아는 사람: 구조를 알아서 덜 들키고 물건도 더 챙긴다 (최대 2명)
+  const experts = members.filter((id) => SURV_BY_ID[id]?.know.some((k) => zone.know.includes(k))).slice(0, 2);
+  loot += experts.length;
   let friends = 0;
   let rivals = 0;
   for (let i = 0; i < members.length; i++) {
@@ -550,14 +555,14 @@ export function previewExpedition(s: State, zoneId: string, members: string[], n
     }
   }
   // 불화인 두 사람이 같이 가면 손발이 안 맞아 들킬 확률이 오른다
-  const risk = Math.min(0.5, Math.max(0, (zone.D - power) * 0.12) * guard * (1 + 0.2 * rivals));
+  const risk = Math.min(0.5, Math.max(0, (zone.D - power) * 0.12) * guard * (1 + 0.2 * rivals) * 0.85 ** experts.length);
   const deathIf: Record<string, number> = {};
   let safe = 1;
   for (const id of members) {
     deathIf[id] = deathChance(id, members, s, now);
     safe *= 1 - risk * deathIf[id];
   }
-  return { ms: expeditionMs(s, zone), risk, loot, power, deathIf, anyDeath: 1 - safe, friends, rivals };
+  return { ms: expeditionMs(s, zone), risk, loot, power, deathIf, anyDeath: 1 - safe, friends, rivals, experts };
 }
 
 function luckOf(s: State, members: string[]): number {
@@ -613,7 +618,7 @@ export function startExpedition(s: State, zoneId: string, members: string[], now
   const supplies = { food: 0, water: 0, med: 0 } as Record<ResKey, number>;
   for (const k of Object.keys(zone.supply) as ResKey[]) {
     const [lo, hi] = zone.supply[k] as [number, number];
-    supplies[k] = Math.round((lo + rng() * (hi - lo)) * (caught ? 0.5 : 1));
+    supplies[k] = Math.round((lo + rng() * (hi - lo)) * (caught ? 0.5 : 1) * (1 + 0.15 * pv.experts.length));
   }
   const deaths: ExpResult['deaths'] = [];
   if (caught) {

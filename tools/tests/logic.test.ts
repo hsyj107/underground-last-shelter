@@ -586,3 +586,34 @@ test('출신에 맞는 직업만 고를 수 있다', () => {
   }
   assert.ok(g.validCombo(g.defaultCreation().origin, g.defaultCreation().job));
 });
+
+test('현지 지식: 구역을 잘 아는 사람이 있으면 덜 들키고 더 챙긴다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0, plain());
+  for (const id of ['f_tuna', 'f_peach', 'f_beans', 'f_spam', 'f_ramen', 'f_snack', 'm_band', 'm_pain', 'm_kit', 'm_disinf', 'm_anti', 'm_vita', 't_battery', 't_light', 't_bank', 't_radio', 'c_comic', 'c_mag', 'd_roll', 'd_lighter', 'd_blanket', 'p_food', 'p_can', 'p_churu']) s.found[id] = 1;
+  const nurse = join(s, 'nurse');
+  const cook = join(s, 'cook');
+  const base = g.previewExpedition(s, 'hospital', [cook], 0);
+  const withNurse = g.previewExpedition(s, 'hospital', [nurse], 0);
+  assert.deepEqual(withNurse.experts, [nurse]);
+  assert.deepEqual(base.experts, []);
+  assert.equal(withNurse.loot, base.loot + 1);
+  // 같은 팀 구성에서 아는 사람만 빠지면 위험이 올라간다
+  const kidless = g.previewExpedition(s, 'hospital', [nurse, cook], 0);
+  assert.deepEqual(kidless.experts, [nurse]);
+  // 상관없는 구역에서는 전문가가 아니다
+  assert.deepEqual(g.previewExpedition(s, 'mart', [nurse], 0).experts, []);
+  assert.deepEqual(g.previewExpedition(s, 'mart', [cook], 0).experts, [cook]);
+  // 최대 2명까지만 효과
+  const doc = join(s, 'doctor');
+  assert.equal(g.previewExpedition(s, 'hospital', [nurse, doc, join(s, 'paramedic')], 0).experts.length, 2);
+});
+
+test('플레이어 직업도 구역 지식이 된다 (의료인→병원, 사무직→사무실)', () => {
+  g.setRng(Math.random);
+  const cr = g.defaultCreation();
+  const s = g.newState('a', 0, { ...cr, origin: 'shopper', job: 'clerk' });
+  s.found = Object.fromEntries(ITEMS.map((i) => [i.id, 1]));
+  assert.deepEqual(g.previewExpedition(s, 'office', ['me'], 0).experts, ['me']);
+  assert.deepEqual(g.previewExpedition(s, 'hospital', ['me'], 0).experts, []);
+});

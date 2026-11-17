@@ -105,6 +105,21 @@ export const RES: Record<ResKey, { name: string; icon: string }> = {
   med: { name: '의약품', icon: '💊' },
 };
 
+/** 일해 본 분야. 탐사 구역과 겹치면 그 구역을 잘 안다 */
+export type Know = 'food' | 'medical' | 'tech' | 'culture' | 'security' | 'retail' | 'office' | 'edu' | 'auto' | 'logistics';
+export const KNOW_NAME: Record<Know, string> = {
+  food: '식품·조리',
+  medical: '의료',
+  tech: '전기·기계',
+  culture: '책·문화',
+  security: '경비·구조',
+  retail: '상점·유통',
+  office: '사무',
+  edu: '교육',
+  auto: '차량',
+  logistics: '운송',
+};
+
 export interface ZoneDef {
   id: string;
   name: string;
@@ -116,6 +131,8 @@ export interface ZoneDef {
   /** 도감 몇 종을 발견해야 열리는지 */
   unlock: number;
   cats: Partial<Record<Cat, number>>;
+  /** 이 구역을 잘 아는 분야. 팀에 이 분야 사람이 있으면 유리하다 */
+  know: Know[];
   /** 이 구역에서 가져오는 생존 물자의 범위 */
   supply: Partial<Record<ResKey, [number, number]>>;
   blurb: string;
@@ -124,30 +141,52 @@ export interface ZoneDef {
 
 export const ZONES: ZoneDef[] = [
   { id: 'mart', name: '동네 슈퍼마트', icon: '🛒', D: 1, minutes: 4, unlock: 0, cats: { food: 10, daily: 5, pet: 4 },
+    know: ['retail', 'food', 'logistics'],
     supply: { food: [16, 30], water: [10, 20] },
     blurb: '셔터가 반쯤 내려간 동네 마트. 다들 한 번은 털고 간 곳.',
     lines: ['진열대 밑에서 굴러 들어간 물건을 건졌다.', '좀비 두 마리가 졸고 있어서 발끝으로 걸었다.', '계산대 밑 서랍까지 샅샅이 뒤졌다.'] },
   { id: 'pharmacy', name: '24시 약국', icon: '💊', D: 1, minutes: 8, unlock: 5, cats: { medical: 10, daily: 3, food: 2 },
+    know: ['medical', 'retail'],
     supply: { med: [8, 16], water: [6, 12] },
     blurb: '24시간이라더니 정말 불이 꺼진 적이 없다. 간판만.',
     lines: ['약 서랍마다 라벨이 또박또박 붙어 있었다.', '조제실 안쪽에서 의외로 깨끗한 상자를 찾았다.', '쇼케이스 뒤쪽까지 손을 뻗었다.'] },
+  { id: 'office', name: '사무실 빌딩', icon: '🏢', D: 2, minutes: 12, unlock: 8, cats: { tech: 5, culture: 4, daily: 5, food: 3 },
+    know: ['office', 'tech'],
+    supply: { food: [6, 12], water: [8, 14] },
+    blurb: '출근 카드를 찍던 층. 책상 위 커피잔이 아직 그 자리에 있다.',
+    lines: ['칸막이 사이를 숨죽이고 지나 서랍을 하나씩 열었다.', '탕비실 찬장에서 의외의 보급품을 찾았다.', '서버실 문은 열지 않았다. 안에서 소리가 났다.'] },
   { id: 'bookstore', name: '고서당 헌책방', icon: '📖', D: 2, minutes: 15, unlock: 10, cats: { culture: 10, daily: 3, pet: 1 },
+    know: ['culture', 'edu'],
     supply: { food: [4, 8], water: [4, 8] },
     blurb: '종이 냄새가 가득하다. 쌓인 책탑 사이로 뭔가 움직인다.',
     lines: ['책탑이 무너질까 봐 숨을 참고 걸었다.', '먼지 쌓인 서가 뒤에서 상자를 발견했다.', '좀비가 책을 읽는 척 서 있었다. 그냥 지나쳤다.'] },
+  { id: 'school', name: '초등학교', icon: '🏫', D: 2, minutes: 18, unlock: 13, cats: { culture: 8, daily: 4, food: 3 },
+    know: ['edu', 'culture'],
+    supply: { food: [6, 12], water: [6, 12] },
+    blurb: '텅 빈 교실에 출석부가 펼쳐져 있다. 마지막 칸은 비어 있다.',
+    lines: ['급식실 선반에서 먼지 덮인 상자를 건졌다.', '복도 끝 교무실은 문이 잠겨 있었다. 열쇠는 책상 밑에 있었다.', '아이들 사물함을 열어 보지 않으려 애썼다.'] },
   { id: 'electro', name: '전자상가', icon: '🔌', D: 3, minutes: 25, unlock: 16, cats: { tech: 10, culture: 2, daily: 2 },
+    know: ['tech', 'retail'],
     supply: { water: [8, 14], food: [3, 6] },
     blurb: '네온 간판이 아직도 한 글자 깜박인다. 좀비도 깜박인다.',
     lines: ['선이 엉킨 진열대에서 쓸 만한 걸 골라냈다.', '셔터 틈으로 기어서 들어갔다.', '전원이 들어오는 물건이 몇 개나 남아 있었다.'] },
+  { id: 'gas', name: '주유소 정비소', icon: '⛽', D: 3, minutes: 30, unlock: 19, cats: { daily: 6, tech: 4, food: 4 },
+    know: ['auto', 'logistics', 'tech'],
+    supply: { water: [6, 12], food: [6, 12] },
+    blurb: '펌프는 멈췄는데 매점 불빛이 가끔 깜박인다. 전기가 어디서 오는지는 모른다.',
+    lines: ['정비 리프트 아래에서 쓸 만한 공구 상자를 찾았다.', '매점 냉장고는 열지 않았다. 냄새가 모든 걸 말해 줬다.', '세차장 지붕 위에서 주변을 살폈다.'] },
   { id: 'hospital', name: '종합병원', icon: '🏥', D: 4, minutes: 40, unlock: 22, cats: { medical: 10, tech: 3, daily: 2 },
+    know: ['medical'],
     supply: { med: [20, 34], food: [6, 10], water: [6, 10] },
     blurb: '로비엔 아직 대기번호가 켜져 있다. 불길한 숫자다.',
     lines: ['약제과 금고를 열 수 있는 방법을 찾았다.', '병동 복도에서 소리 없이 이동했다.', '응급실 카트에서 쓸 만한 물건을 건졌다.'] },
   { id: 'police', name: '경찰서', icon: '🚓', D: 4, minutes: 60, unlock: 28, cats: { tech: 5, daily: 5, medical: 3, culture: 1 },
+    know: ['security'],
     supply: { food: [8, 14], med: [6, 12], water: [6, 12] },
     blurb: '유치장 문은 안에서 열려 있다. 누가 먼저 나갔는지는 모른다.',
     lines: ['증거물 보관실에서 의외의 물건이 쏟아졌다.', '순찰차 트렁크를 열고 숨을 골랐다.', '당직실 책상 서랍에서 비상용품을 찾았다.'] },
   { id: 'megamart', name: '대형마트 지하', icon: '🏬', D: 5, minutes: 120, unlock: 34, cats: { food: 6, medical: 6, tech: 6, culture: 6, pet: 6, daily: 6 },
+    know: ['retail', 'logistics', 'food'],
     supply: { food: [40, 70], water: [30, 50], med: [14, 26] },
     blurb: '카트 소리가 아직 울린다. 그 소리는 사람이 아니다.',
     lines: ['어둠 속에서 카트를 천천히 밀어 진열대를 돌았다.', '창고 가장 안쪽에서 손도 안 댄 팔레트를 발견했다.', '냉동 코너만은 건드리지 않고 지나갔다.'] },
@@ -198,6 +237,7 @@ export interface SurvDef {
   chat: string[];
   prof: string;
   stats: Stats;
+  know: Know[];
 }
 
 export const CHAPTER_AFF = [20, 50, 100];
@@ -255,6 +295,7 @@ export const PLAYER: SurvDef = {
   chat: ['아직 문은 닫혀 있다.', '오늘도 숫자부터 센다. 사람, 식량, 물.', '내가 내리는 결정이 누군가의 하루가 된다.'],
   prof: 'me',
   stats: { str: 3, agi: 3, med: 3, cha: 4 },
+  know: [],
 };
 
 // ---------- 플레이어 만들기 ----------
@@ -548,6 +589,20 @@ const CORE_PROFS: ProfDef[] = [
 /** 기본 8종 + 일반 직업들. 오는 순서는 정해져 있지 않다 */
 export const PROFS: ProfDef[] = [...CORE_PROFS, ...EXTRA_PROFS];
 
+/** 직업별로 잘 아는 분야 */
+export const PROF_KNOW: Record<string, Know[]> = {
+  cook: ['food'], dev: ['tech', 'office'], soldier: ['security'], cat: [], nurse: ['medical'], comic: ['culture', 'retail'], dj: ['culture', 'tech'], kid: ['edu'],
+  farmer: ['food'], plumber: ['tech'], baker: ['food', 'retail'], firefighter: ['security'], police: ['security'],
+  courier: ['logistics'], rider: ['logistics'], teacher: ['edu', 'culture'], pastor: ['culture'], pharmacist: ['medical', 'retail'],
+  vet: ['medical'], paramedic: ['medical', 'security'], doctor: ['medical'], cleaner: ['office', 'retail'], electrician: ['tech'],
+  mechanic: ['tech', 'auto'], angler: ['food'], streamer: ['tech', 'culture'], busker: ['culture'], student: ['edu', 'office'],
+  oldlady: ['retail', 'logistics'], bartender: ['food', 'retail'], researcher: ['tech', 'medical'], trucker: ['logistics', 'auto'],
+};
+/** 플레이어(관리자)의 직업별로 잘 아는 분야 */
+export const JOB_KNOW: Record<string, Know[]> = {
+  medic: ['medical'], engineer: ['tech', 'auto'], soldier: ['security'], merchant: ['retail', 'food', 'logistics'], clerk: ['office'],
+};
+
 export const PROF_BY_ID: Record<string, ProfDef> = Object.fromEntries(PROFS.map((p) => [p.id, p]));
 
 /** 생존자 한 명을 화면·규칙이 읽는 형태로 합친다 */
@@ -569,6 +624,7 @@ export function makeDef(p: Person): SurvDef {
     chat: pr.chat,
     prof: p.prof,
     stats: p.stats,
+    know: PROF_KNOW[p.prof] ?? [],
   };
 }
 
@@ -583,6 +639,7 @@ export function registerPlayer(p: PlayerInfo): void {
     title: `${o?.name ?? ''} · ${jobTitle(p.origin, p.job)}`,
     look: p.look,
     stats: p.stats,
+    know: JOB_KNOW[p.job] ?? [],
     power: 1 + Math.floor((p.stats.str - 1) / 3.5),
     chat: j?.chat ?? PLAYER.chat,
   };
