@@ -704,7 +704,7 @@ export interface Trait {
 }
 /** 관리자가 시작할 때 고르는 특성. 효과는 state.ts 가 id 로 읽는다 */
 export const TRAITS: Trait[] = [
-  { id: 'calm', name: '침착함', icon: '🧊', text: '탐사에서 누가 죽을 확률 -10%' },
+  { id: 'calm', name: '침착함', icon: '🧊', text: '탐사에서 동료가 죽을 확률 -10%' },
   { id: 'charm', name: '카리스마', icon: '🎤', text: '협상 성공 +20%, 새로 합류한 사람과 친구가 될 확률 +10%' },
   { id: 'steward', name: '알뜰함', icon: '🧮', text: '식량·식수 소비 -10%' },
   { id: 'veteran', name: '노련함', icon: '🛡', text: '방어력 +20%, 돌파·습격 판정 +' },

@@ -793,7 +793,6 @@ function openSettings(): void {
     `<h2>설정</h2>
     <p class="dim">저장은 이 기기의 브라우저에만 됩니다. 접속하지 않아도 시간은 흘러 식량과 물이 줄고 탐사가 진행돼요.</p>
     <p class="dim sm">시험용: 주소 끝에 <b>?speed=30</b> 을 붙이면 시간이 30배 빨라져요.</p>
-    <button class="btn wide" data-act="hall">🏆 명예의 전당</button>
     <button class="btn danger wide" data-act="reset1">처음부터 다시 하기</button>
     <button class="btn wide" data-act="close">닫기</button>`,
   );

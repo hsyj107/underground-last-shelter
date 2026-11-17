@@ -807,12 +807,11 @@ export interface Preview {
 /** 들켰을 때 죽을 확률. 전투가 세면 낮고, 팀에 의료 능력치가 높은 사람이 있으면 더 낮다. */
 export function deathChance(id: string, members: string[], s?: State, now = 0): number {
   const d = SURV_BY_ID[id];
-  if (!d) return 0;
+  if (!d || id === 'me') return 0; // 주인공(관리자)은 죽지 않는다
   const medic = Math.max(0, ...members.map((m) => SURV_BY_ID[m]?.stats.med ?? 0));
   let p = Math.max(0.03, (0.5 - 0.04 * d.stats.str) * (1 - Math.min(0.4, 0.04 * medic)));
   // 친한 사람이 같이 가면 서로 챙긴다
   if (s && members.some((m) => m !== id && relOf(s, id, m) === 'friend')) p *= 0.85;
-  if (id === 'me') p *= 0.35; // 관리자는 보호받지만 죽을 수 있다
   if (s && hasTrait(s, 'calm')) p *= 0.9;
   if (s) {
     p *= rationDeathMult(s, now);

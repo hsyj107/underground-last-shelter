@@ -424,8 +424,7 @@ test('죽음: 안전한 구역에서는 아무도 죽지 않고, 전투가 센 �
   assert.ok(g.deathChance(sol, [sol]) < g.deathChance(kid, [kid]));
   // 의료 능력치가 높은 동료가 함께 가면 사망 확률이 내려간다
   assert.ok(g.deathChance(kid, [kid, nurse]) < g.deathChance(kid, [kid]));
-  // 관리자도 죽을 수 있지만 같은 능력치의 동료보다 훨씬 덜 위험하다
-  assert.ok(g.deathChance('me', ['me']) > 0);
+  assert.equal(g.deathChance('me', ['me']), 0);
   assert.ok(g.deathChance(kid, [kid]) >= 0.03);
 });
 
@@ -836,24 +835,17 @@ test('역할: 탐사조만 탐사를 나가고, 생산조는 생산을, 방어�
   assert.ok(g.availableCrew(s, 0).includes(a));
 });
 
-test('관리자가 탐사에서 죽으면 게임이 끝나고 기록이 한 번만 남는다', () => {
+test('주인공(관리자)은 어떤 경우에도 죽지 않는다', () => {
   const s = g.newState('a', 0);
   s.found = Object.fromEntries(ITEMS.slice(0, 40).map((i) => [i.id, 1]));
-  g.setRng(() => 0);
+  assert.equal(g.deathChance('me', ['me'], s, 0), 0);
+  g.setRng(() => 0); // 항상 들키고 항상 '죽음' 판정
   const r = g.startExpedition(s, 'megamart', ['me'], 0);
   assert.ok(r.ok);
   if (!r.ok) return;
-  assert.deepEqual(r.exp.result.deaths.map((d) => d.id), ['me']);
-  const rep = g.claimExpedition(s, r.exp.id, r.exp.end);
-  assert.ok(rep);
-  assert.ok(s.over, '게임 오버');
-  assert.equal(s.over!.recorded, false);
-  assert.ok(rep!.deaths.some((d) => d.id === 'me'));
-  // 게임이 끝나면 시간이 흐르지 않는다
-  const res = { ...s.res };
-  g.tick(s, 5 * 3600000);
-  assert.deepEqual(s.res, res);
-  assert.ok(g.hallEntry(s).days >= 1);
+  assert.deepEqual(r.exp.result.deaths, []);
+  g.claimExpedition(s, r.exp.id, r.exp.end);
+  assert.equal(s.over, null);
   g.setRng(Math.random);
 });
 
@@ -865,7 +857,9 @@ test('특성: 알뜰함은 소비를, 침착함은 사망 확률을 줄인다', 
   assert.ok(g.flow(a, 0).cons.food < g.flow(b, 0).cons.food);
   const c = g.newState('c', 0, { ...plain(), trait: 'calm' });
   const d = g.newState('d', 0, { ...plain(), trait: 'lucky' });
-  assert.ok(g.deathChance('me', ['me'], c, 0) < g.deathChance('me', ['me'], d, 0));
+  const k = join(c, 'kid');
+  const k2 = join(d, 'kid');
+  assert.ok(g.deathChance(k, [k], c, 0) < g.deathChance(k2, [k2], d, 0));
 });
 
 test('습격: 방어조가 있으면 막아내고, 없으면 물자를 잃으며 협상·지불로 피할 수 있다', () => {

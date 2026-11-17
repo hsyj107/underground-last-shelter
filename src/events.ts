@@ -201,10 +201,6 @@ export function resolveRaid(s: State, choice: RaidChoice, now: number, auto = fa
           const gone = killPerson(s, id, 'raid', lastWordsOf(s, id), '습격에 쓰러졌다', now);
           if (gone) res.dead.push(gone);
         }
-        if (gap > 0.5 && !awaySet(s, now).has('me') && rand() < 0.2) {
-          const gone = killPerson(s, 'me', 'raid', lastWordsOf(s, 'me'), '습격을 막지 못하고 쓰러졌다', now);
-          if (gone) res.dead.push(gone);
-        }
       }
     }
   }
