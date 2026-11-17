@@ -108,7 +108,7 @@ import type { Notice, RaidChoice, RaidResult, Gone } from './events.ts';
 import { cutawayURL } from './cutaway.ts';
 import { iconURL, lookPortraitURL, portraitURL, profPortraitURL } from './sprites.ts';
 
-type Tab = 'home' | 'explore' | 'shelf' | 'crew';
+type Tab = 'home' | 'explore' | 'build' | 'shelf' | 'crew';
 
 let S: State;
 let scene: Scene;
@@ -168,6 +168,7 @@ export function startApp(root: HTMLElement): void {
       <nav id="tabs">
         <button data-tab="home"><i>🏪</i>벙커<u></u></button>
         <button data-tab="explore"><i>🎒</i>탐사<u></u></button>
+        <button data-tab="build"><i>🛠</i>개조<u></u></button>
         <button data-tab="shelf"><i>🗄️</i>선반<u></u></button>
         <button data-tab="crew"><i>👥</i>생존자<u></u></button>
       </nav>
@@ -333,6 +334,7 @@ function updateDots(): void {
   const now = Date.now();
   const dots: Record<Tab, boolean> = {
     home: readyExps(now) > 0 || !!S.visitor,
+    build: false,
     explore: S.exps.length === 0 && availableCrew(S, now).length > 0 && S.stats.expeditions > 0,
     shelf: false,
     crew: !!S.visitor || Object.keys(S.sick).length > 0,
@@ -363,7 +365,7 @@ function updateLive(): void {
 function renderPanel(): void {
   const p = $('#panel');
   const top = p.scrollTop;
-  p.innerHTML = tab === 'home' ? homeHtml() : tab === 'explore' ? exploreHtml() : tab === 'shelf' ? shelfHtml() : crewHtml();
+  p.innerHTML = tab === 'home' ? homeHtml() : tab === 'explore' ? exploreHtml() : tab === 'build' ? buildHtml() : tab === 'shelf' ? shelfHtml() : crewHtml();
   p.scrollTop = top;
 }
 
@@ -405,7 +407,12 @@ function homeHtml(): string {
   h += supplyHtml(now);
 
   h += rolesHtml(now);
-  h += floorHtml();
+  return h;
+}
+
+/** 개조 탭: 거주 구역(층) 확장과 설비 개조 */
+function buildHtml(): string {
+  let h = floorHtml();
   h += `<section class="card"><h3>🛠 개조</h3>`;
   (Object.keys(UPGRADES) as UpgKey[]).forEach((k) => {
     const u = UPGRADES[k];
