@@ -1,9 +1,11 @@
 // 벙커 단면도: 지금까지 판 층과 침대, 다음에 파 내려갈 층을 도트로 그린다.
 import { FLOORS } from './data.ts';
+import { drawText } from './sprites.ts';
 
 const W = 120;
 const TOP = 18; // 지상
 const ROW = 22; // 한 층 높이
+const BAND = 42; // 지상과 지하 7층 사이, 지하 1~6층을 지나는 구간
 
 const cache = new Map<string, string>();
 
@@ -19,7 +21,7 @@ export function cutawayURL(floor: number, used: number, sick = 0): string {
   const key = `${floor}|${used}|${sick}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const H = TOP + FLOORS.length * ROW;
+  const H = TOP + BAND + FLOORS.length * ROW;
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
@@ -43,10 +45,23 @@ export function cutawayURL(floor: number, used: number, sick = 0): string {
   rect(81, TOP - 11, 4, 2, '#7ea06b');
   rect(99, TOP - 11, 4, 2, '#7ea06b');
 
+  // 지하 1~6층: 버려진 층들. 승강기 통로만 곧게 내려간다.
+  const FL = BAND / 6;
+  rect(0, TOP, W, BAND, '#1d1915');
+  for (let i = 0; i < 6; i++) {
+    const fy = TOP + i * FL;
+    rect(0, fy, W, 1, '#2d261f');
+    rect(0, fy + FL - 1, W, 1, '#0d0907');
+    for (let k = 0; k < 3; k++) rect(30 + k * 30 + ((i * 7) % 6), fy + 2, 6, 2, i === 2 && k === 1 ? '#6a2a22' : '#2e2619');
+    drawText(g, `B${i + 1}`, 16, fy + 1, '#9a8660');
+  }
+  rect(4, TOP, 9, BAND, '#2d2e34');
+  rect(8, TOP, 1, BAND, '#4a4c55');
+
   let seat = 0;
   let prevCap = 0;
   FLOORS.forEach((f, i) => {
-    const y = TOP + i * ROW;
+    const y = TOP + BAND + i * ROW;
     if (i <= floor) {
       // 열린 층: 벽 · 바닥 · 전등
       rect(0, y, W, ROW, '#4d3a2b');
@@ -88,6 +103,8 @@ export function cutawayURL(floor: number, used: number, sick = 0): string {
       rect(0, y, W, ROW, '#1c1511');
       for (let k = 0; k < 30; k++) rect(Math.floor(hash(k + i * 31) * W), y + Math.floor(hash(k + 5) * ROW), 1, 1, '#2d2218');
     }
+    // 층 번호 (지하 7층부터)
+    drawText(g, `B${7 + i}`, W - 15, y + 2, i <= floor ? '#e8d6a8' : '#5e5040');
     // 층 구분선
     rect(0, y + ROW - 1, W, 1, '#0d0907');
   });

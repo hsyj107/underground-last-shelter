@@ -3,7 +3,11 @@ import { SHELF_ORDER, SURV_BY_ID } from './data.ts';
 import { drawBag, drawCat, drawPerson, drawText, drawZombie, iconCanvas, personHeight } from './sprites.ts';
 
 export const SW = 180;
-export const SH = 168;
+/** 매장(지하 7층) 장면 안쪽 높이 */
+const SHS = 168;
+/** 지상과 지하 7층 사이, 지하 1~6층을 지나가는 구간 높이 */
+const DEPTH = 42;
+export const SH = SHS + DEPTH;
 
 const GROUND_Y = 40; // 지표면
 const STORE_TOP = 46;
@@ -164,7 +168,7 @@ export class Scene {
   /** 장면 좌표 → 화면(CSS) 좌표 */
   cssPos(x: number, y: number): { left: number; top: number } {
     const r = this.canvas.getBoundingClientRect();
-    return { left: (x / SW) * r.width, top: (y / SH) * r.height };
+    return { left: (x / SW) * r.width, top: ((y + DEPTH) / SH) * r.height };
   }
 
   burst(x: number, y: number, kind: 'heart' | 'spark', n = 5): void {
@@ -186,7 +190,7 @@ export class Scene {
   private onPointer(e: PointerEvent): void {
     const r = this.canvas.getBoundingClientRect();
     const lx = ((e.clientX - r.left) / r.width) * SW;
-    const ly = ((e.clientY - r.top) / r.height) * SH;
+    const ly = ((e.clientY - r.top) / r.height) * SH - DEPTH;
     const m = this.getModel();
     for (let i = 0; i < m.bags; i++) {
       const bx = 30 + i * 13;
@@ -322,10 +326,52 @@ export class Scene {
     const m = this.getModel();
     ctx.clearRect(0, 0, SW, SH);
     this.drawSurface(ctx, m.hour);
+    this.drawDepth(ctx);
+    // 매장은 지하 7층: 지상과 지하 1~6층 구간 아래에 그린다
+    ctx.save();
+    ctx.translate(0, DEPTH);
     this.drawStore(ctx, m);
     this.drawEntities(ctx, m);
     this.drawLight(ctx);
     this.drawParticles(ctx);
+    ctx.restore();
+  }
+
+  /** 지상에서 지하 7층까지 내려가는 동안 지나치는 지하 1~6층 (버려진 층과 승강기) */
+  private drawDepth(ctx: CanvasRenderingContext2D): void {
+    const y0 = STORE_TOP;
+    const R = (x: number, y: number, w: number, h: number, c: string): void => {
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, w, h);
+    };
+    const FL = DEPTH / 6;
+    R(0, y0, 160, DEPTH, '#1d1915');
+    for (let i = 0; i < 6; i++) {
+      const fy = y0 + i * FL;
+      R(0, fy, 160, 1, '#2d261f');
+      R(0, fy + FL - 1, 160, 1, '#0d0a08');
+      // 버려진 층: 희미한 창과 무너진 틈
+      for (let k = 0; k < 3; k++) R(26 + k * 44 + ((i * 13) % 9), fy + 2, 7, 2, i === 2 && k === 1 ? '#6a2a22' : '#2e2619');
+      R(((i * 37) % 120) + 20, fy + FL - 2, 5, 1, '#33291f');
+      drawText(ctx, `B${i + 1}`, 3, fy + 1, '#9a8660');
+    }
+    // 비상등이 깜박이는 층
+    if (Math.floor(this.t * 1.5) % 2 === 0) R(150, y0 + 2 * FL + 1, 2, 2, '#e04a3a');
+    // 승강기 통로가 층을 관통해 내려간다
+    R(160, y0, 16, DEPTH, '#1e1a1a');
+    R(167, y0, 2, DEPTH, '#3a3636');
+    for (let i = 0; i < 6; i++) {
+      const fy = y0 + i * FL;
+      R(160, fy, 16, 1, '#4a4444');
+      R(162, fy + 1, 4, 3, '#2a2626');
+      R(170, fy + 1, 4, 3, '#2a2626');
+    }
+    const cy = y0 + ((this.t * 4) % (DEPTH - 6));
+    R(162, Math.floor(cy), 12, 6, '#6a6a72');
+    R(162, Math.floor(cy), 12, 1, '#8a8a92');
+    R(167, Math.floor(cy) + 1, 1, 5, '#222');
+    R(163, Math.floor(cy) + 2, 3, 2, '#ffd34d');
+    R(176, y0, 4, DEPTH, '#2b211a');
   }
 
   private drawSurface(ctx: CanvasRenderingContext2D, hour: number): void {
@@ -529,9 +575,9 @@ export class Scene {
   private drawStore(ctx: CanvasRenderingContext2D, m: SceneModel): void {
     // 승강기 통로
     ctx.fillStyle = '#1e1a1a';
-    ctx.fillRect(160, STORE_TOP, 16, SH - STORE_TOP);
+    ctx.fillRect(160, STORE_TOP, 16, SHS - STORE_TOP);
     ctx.fillStyle = '#3a3636';
-    ctx.fillRect(167, STORE_TOP, 2, SH - STORE_TOP);
+    ctx.fillRect(167, STORE_TOP, 2, SHS - STORE_TOP);
     ctx.fillStyle = '#4a4444';
     for (let y = STORE_TOP + 8; y < FLOOR_Y; y += 16) ctx.fillRect(160, y, 16, 1);
     ctx.fillStyle = '#6a6a72';
@@ -543,7 +589,7 @@ export class Scene {
     ctx.fillStyle = '#ffd34d';
     ctx.fillRect(166, 130, 3, 2);
     ctx.fillStyle = '#2b211a';
-    ctx.fillRect(176, STORE_TOP, 4, SH - STORE_TOP);
+    ctx.fillRect(176, STORE_TOP, 4, SHS - STORE_TOP);
     // 천장, 벽
     ctx.fillStyle = '#2a2118';
     ctx.fillRect(0, STORE_TOP, 160, 6);
@@ -559,7 +605,7 @@ export class Scene {
     ctx.fillStyle = '#7a5c3c';
     ctx.fillRect(0, 112, 160, 2);
     // 바닥
-    for (let y = FLOOR_Y; y < SH; y += 6) {
+    for (let y = FLOOR_Y; y < SHS; y += 6) {
       for (let x = 0; x < 160; x += 8) {
         ctx.fillStyle = ((x / 8 + (y - FLOOR_Y) / 6) | 0) % 2 === 0 ? '#7a6a55' : '#6c5d49';
         ctx.fillRect(x, y, 8, 6);
@@ -568,7 +614,7 @@ export class Scene {
     ctx.fillStyle = '#4a3c2c';
     ctx.fillRect(0, FLOOR_Y, 160, 2);
     ctx.fillStyle = '#2b211a';
-    ctx.fillRect(0, SH - 2, 180, 2);
+    ctx.fillRect(0, SHS - 2, 180, 2);
 
     // 문
     ctx.fillStyle = '#3a3a40';
@@ -764,13 +810,13 @@ export class Scene {
     }
     // 따뜻한 분위기와 가장자리 어둠
     ctx.fillStyle = `rgba(255,170,60,${0.06 * this.flicker})`;
-    ctx.fillRect(0, STORE_TOP + 6, 160, SH - STORE_TOP - 6);
+    ctx.fillRect(0, STORE_TOP + 6, 160, SHS - STORE_TOP - 6);
     ctx.fillStyle = 'rgba(0,0,0,0.22)';
-    ctx.fillRect(0, STORE_TOP + 6, 3, SH);
-    ctx.fillRect(157, STORE_TOP + 6, 3, SH);
+    ctx.fillRect(0, STORE_TOP + 6, 3, SHS);
+    ctx.fillRect(157, STORE_TOP + 6, 3, SHS);
     ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    ctx.fillRect(3, STORE_TOP + 6, 3, SH);
-    ctx.fillRect(154, STORE_TOP + 6, 3, SH);
+    ctx.fillRect(3, STORE_TOP + 6, 3, SHS);
+    ctx.fillRect(154, STORE_TOP + 6, 3, SHS);
   }
 
   private drawParticles(ctx: CanvasRenderingContext2D): void {
