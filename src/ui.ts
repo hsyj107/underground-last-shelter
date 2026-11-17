@@ -671,19 +671,30 @@ let cc: CC;
 
 const pick = <T,>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];
 
+/** 직업마다 다른 작업복: 소매·바지·신발 색과 소품 (윗옷 색은 직접 고른다) */
+const JOB_OUTFIT: Record<string, { top2: string; pants: string; shoes: string; acc: string[] }> = {
+  medic: { top2: '#f4efe4', pants: '#5a7a8a', shoes: '#f4efe4', acc: ['cross'] },
+  engineer: { top2: '#d8a838', pants: '#3a4a5a', shoes: '#3a2a22', acc: ['cap', 'toolbelt'] },
+  soldier: { top2: '#5a6a3a', pants: '#4a5a2a', shoes: '#2a2a22', acc: ['camo'] },
+  merchant: { top2: '#c8a050', pants: '#3a3a4a', shoes: '#4a3a2a', acc: ['glasses', 'tie'] },
+  clerk: { top2: '#8a8a96', pants: '#4a4a54', shoes: '#2a2a2a', acc: ['badge'] },
+};
+
 function ccLook(): Look {
   const o = ORIGIN_BY_ID[cc.origin];
+  const jo = JOB_OUTFIT[cc.job] ?? JOB_OUTFIT.clerk;
+  const acc = [...new Set([...o.acc, ...jo.acc, ...cc.acc])].filter((a) => !(cc.gender === 'f' && a === 'beard'));
   return {
     skin: cc.skin,
     hair: cc.hair,
     style: cc.style,
     top: cc.top,
-    top2: '#ff9a3c',
-    pants: '#3a3a4a',
-    shoes: '#2a2a2a',
+    top2: jo.top2,
+    pants: jo.pants,
+    shoes: jo.shoes,
     f: cc.gender === 'f',
     skirt: cc.gender === 'f',
-    acc: [...o.acc, ...cc.acc.filter((a) => !o.acc.includes(a))].filter((a) => !(cc.gender === 'f' && a === 'beard')),
+    acc,
   };
 }
 

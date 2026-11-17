@@ -253,6 +253,23 @@ export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, o: Pose
         rect(9, 5 + hb, 1, 2, look.hair);
         rect(4, 6 + hb, 4, 1, look.hair);
         break;
+      case 'cross':
+        rect(5, 8 + bob, 2, 1, '#e04a4a');
+        rect(5, 8 + bob, 1, 1, '#e04a4a');
+        rect(5, 9 + bob, 2, 1, '#e04a4a');
+        break;
+      case 'tie':
+        rect(5, 7 + bob, 2, 1, '#f4efe4');
+        rect(5, 8 + bob, 2, 3, '#b8302a');
+        break;
+      case 'badge':
+        rect(3, 9 + bob, 2, 1, '#f4efe4');
+        rect(3, 10 + bob, 2, 1, '#6a8ab8');
+        break;
+      case 'toolbelt':
+        rect(3, 7 + bodyH - 2 + bob, 6, 1, '#6a4a2a');
+        rect(7, 7 + bodyH - 1 + bob, 1, 2, '#b8b0a0');
+        break;
       case 'cane':
         rect(11, 9, 1, H - 9, '#7a4a2a');
         rect(10, 8, 2, 1, '#7a4a2a');
