@@ -8,14 +8,4 @@ export default defineConfig({
     host: true,
     port: 5173,
   },
-  build: {
-    chunkSizeWarningLimit: 1500,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          phaser: ['phaser'],
-        },
-      },
-    },
-  },
 });

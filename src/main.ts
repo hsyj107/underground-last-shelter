@@ -1,6 +1,5 @@
-import Phaser from 'phaser';
-import './ui/styles/global.css';
-import { gameConfig } from './game/config/gameConfig';
+import './ui/terminal.css';
+import { startApp } from './ui/app';
 
 /**
  * 화면에 오류 메시지를 띄운다.
@@ -18,8 +17,7 @@ function showError(message: string): void {
   }
   box.textContent += `${message}\n`;
 }
-
 window.addEventListener('error', (e) => showError(`[오류] ${e.message} (${e.filename}:${e.lineno})`));
 window.addEventListener('unhandledrejection', (e) => showError(`[오류] ${String(e.reason)}`));
 
-new Phaser.Game(gameConfig);
+startApp(document.getElementById('app') as HTMLElement);
