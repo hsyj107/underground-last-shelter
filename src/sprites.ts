@@ -98,196 +98,273 @@ export interface PoseOpts {
   silhouette?: boolean;
 }
 
-const W = 12;
+/** 사람 그림 한 장의 가로 크기 (윤곽선 포함) */
+export const PERSON_W = 18;
+/** 모자·상투 자리를 위한 위쪽 여백 */
+const OY = 2;
+const OUT = '#1f1611';
 
-/** fx: 가운데 x, fy: 발끝 y. 키는 어른 17, 아이 14 */
-export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, o: PoseOpts): void {
+/** 발끝에서 정수리(모자 포함)까지 높이. 어른 31, 아이 27 */
+export function personHeight(look: Look): number {
+  return look.kid ? 27 : 31;
+}
+
+function shadeHex(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1, 7), 16);
+  const c = (v: number): string => Math.max(0, Math.min(255, Math.round(v * k))).toString(16).padStart(2, '0');
+  return `#${c((n >> 16) & 255)}${c((n >> 8) & 255)}${c(n & 255)}`;
+}
+
+/** 안경테 색은 외형에서 정해져 늘 같다: 검정, 금색, 은색 */
+const GLASS_COLORS = ['#1c1c22', '#d9a21b', '#c9d0da'];
+function glassColor(look: Look): string {
+  let h = 0;
+  for (const ch of look.hair + look.top + look.pants + look.skin) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return GLASS_COLORS[h % 3];
+}
+
+const personCache = new WeakMap<Look, Map<string, HTMLCanvasElement>>();
+
+/** 윤곽선과 두 가지 음영이 있는 사람 한 컷을 만든다 (정면, 오른쪽을 보는 기준) */
+function buildPerson(look: Look, f: number, moving: boolean, sil: boolean): HTMLCanvasElement {
   const kid = !!look.kid;
-  const legY = kid ? 11 : 12;
+  const torsoH = kid ? 6 : 8;
   const legH = kid ? 2 : 4;
-  const H = legY + legH + 1;
-  const top = Math.round(fy) - H;
-  const left = Math.round(fx) - W / 2;
-  const sil = o.silhouette ? '#1a1410' : null;
-  const rect = (x: number, y: number, w: number, h: number, c: string): void => {
-    ctx.fillStyle = sil ?? c;
-    const px = o.dir > 0 ? left + x : left + W - x - w;
-    ctx.fillRect(px, top + y, w, h);
+  const legY = 15 + torsoH;
+  const artBottom = legY + legH + 1; // 신발 마지막 줄
+  const Hc = OY + artBottom + 2; // 아래 윤곽선 한 줄 포함
+  const buf: (string | null)[] = new Array(PERSON_W * Hc).fill(null);
+  const put = (x: number, y: number, c: string): void => {
+    y += OY;
+    if (x >= 0 && x < PERSON_W && y >= 0 && y < Hc) buf[y * PERSON_W + x] = c;
   };
-  const f = o.frame % 2;
-  const bob = !o.moving && f === 1 ? 1 : 0;
+  const rect = (x: number, y: number, w: number, h: number, c: string): void => {
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(x + i, y + j, c);
+  };
+  /** 한 면: 기본색, 오른쪽 한 줄은 어둡게, 위쪽 한 줄은 밝게 */
+  const box = (x: number, y: number, w: number, h: number, c: string): void => {
+    rect(x, y, w, h, c);
+    rect(x + w - 1, y, 1, h, shadeHex(c, 0.78));
+    if (h > 2) rect(x, y, w - 1, 1, shadeHex(c, 1.12));
+  };
+  const acc = look.acc;
+  const bob = !moving && f === 1 ? 1 : 0;
+  const swing = moving ? (f === 0 ? 1 : -1) : 0;
+  const has = (a: string): boolean => acc.includes(a);
+  const hatted = has('beret') || has('chefhat') || has('nursecap') || has('cap');
 
-  // 다리
-  const lh = o.moving && f === 0 ? legH - 1 : legH;
-  const rh = o.moving && f === 1 ? legH - 1 : legH;
-  rect(3, legY, 2, lh, look.pants);
-  rect(7, legY, 2, rh, look.pants);
-  rect(3, legY + lh, 2, 1, look.shoes);
-  rect(7, legY + rh, 2, 1, look.shoes);
-
-  // 치마 (여성): 다리 윗부분을 치마 색으로 덮는다
+  // 다리와 신발
+  const lh = moving && f === 0 ? legH - 1 : legH;
+  const rh = moving && f === 1 ? legH - 1 : legH;
+  box(5, legY, 4, lh, look.pants);
+  box(9, legY, 4, rh, look.pants);
+  box(4, legY + lh, 5, 2, look.shoes);
+  box(9, legY + rh, 5, 2, look.shoes);
   if (look.skirt) {
-    rect(2, legY - 1, 8, 3, look.pants);
-    rect(2, legY + 1, 8, 1, look.top2);
+    box(3, legY - 2, 12, 4, look.pants);
+    rect(3, legY + 1, 12, 1, look.top2);
   }
 
   // 몸통과 팔
-  const bodyH = legY - 7;
-  const swing = o.moving ? (f === 0 ? 1 : -1) : 0;
-  rect(3, 7 + bob, 6, bodyH - bob, look.top);
-  rect(2, 7 + bob + (swing > 0 ? 1 : 0), 1, bodyH - 1, look.top2);
-  rect(9, 7 + bob + (swing < 0 ? 1 : 0), 1, bodyH - 1, look.top2);
-  rect(2, 7 + bodyH - 1 + bob + (swing > 0 ? 1 : 0), 1, 1, look.skin);
-  rect(9, 7 + bodyH - 1 + bob + (swing < 0 ? 1 : 0), 1, 1, look.skin);
+  box(4, 15 + bob, 10, torsoH, look.top);
+  box(2, 16 + bob + (swing > 0 ? 1 : 0), 2, torsoH - 2, look.top2);
+  box(14, 16 + bob + (swing < 0 ? 1 : 0), 2, torsoH - 2, look.top2);
+  rect(2, 16 + bob + (swing > 0 ? 1 : 0) + torsoH - 2, 2, 2, look.skin);
+  rect(14, 16 + bob + (swing < 0 ? 1 : 0) + torsoH - 2, 2, 2, look.skin);
+  rect(4, legY - 1 + bob, 10, 1, shadeHex(look.pants, 0.7)); // 허리띠
+  rect(7, 14 + bob, 4, 1, shadeHex(look.skin, 0.88)); // 목
 
-  // 얼굴
-  const hb = bob;
-  const acc = look.acc;
-  if (acc.includes('hood')) {
-    rect(1, -1 + hb, 10, 2, look.top2);
-    rect(1, 0 + hb, 1, 8, look.top2);
-    rect(10, 0 + hb, 1, 8, look.top2);
+  // 옷에 덧입는 것
+  if (has('vest')) {
+    box(4, 15 + bob, 3, torsoH, '#f2c230');
+    box(11, 15 + bob, 3, torsoH, '#f2c230');
+    rect(12, 17 + bob, 1, 1, '#fff7d0');
   }
-  rect(2, 0 + hb, 8, 7, look.skin);
-  // 머리카락
+  if (has('apron')) {
+    box(6, 17 + bob, 6, torsoH - 1, '#f4efe4');
+    rect(6, 17 + bob, 6, 1, '#d8d0c0');
+  }
+  if (has('labcoat')) {
+    const coatH = torsoH + 3;
+    box(4, 15 + bob, 3, coatH, '#f4efe4');
+    box(11, 15 + bob, 3, coatH, '#f4efe4');
+    box(2, 16 + bob + (swing > 0 ? 1 : 0), 2, torsoH - 2, '#f4efe4');
+    box(14, 16 + bob + (swing < 0 ? 1 : 0), 2, torsoH - 2, '#f4efe4');
+    rect(4, 15 + bob + coatH - 1, 3, 1, '#d8d0c0');
+    rect(11, 15 + bob + coatH - 1, 3, 1, '#d8d0c0');
+  }
+  if (has('tie')) {
+    rect(8, 15 + bob, 2, 1, '#f4efe4');
+    rect(8, 16 + bob, 2, 5, '#b8302a');
+  }
+  if (has('badge')) {
+    rect(5, 17 + bob, 2, 1, '#f4efe4');
+    rect(5, 18 + bob, 2, 1, '#6a8ab8');
+  }
+  if (has('toolbelt')) {
+    rect(4, legY - 2 + bob, 10, 1, '#6a4a2a');
+    rect(10, legY - 1 + bob, 1, 2, '#b8b0a0');
+  }
+  if (has('camo')) {
+    rect(6, 16 + bob, 2, 1, '#3a4a1a');
+    rect(10, 18 + bob, 2, 1, '#8a9a5a');
+    rect(7, 20 + bob, 3, 1, '#3a4a1a');
+  }
+  if (has('cane')) {
+    rect(16, 17, 1, artBottom - 17, '#7a4a2a');
+    rect(15, 16, 2, 1, '#7a4a2a');
+  }
+
+  // 머리: 후드 → 얼굴 → 머리카락 → 모자
+  const hb = bob;
+  if (has('hood')) {
+    box(2, 1 + hb, 14, 3, look.top2);
+    rect(1, 3 + hb, 1, 9, look.top2);
+    rect(16, 3 + hb, 1, 9, look.top2);
+  }
+  box(2, 3 + hb, 14, 11, look.skin);
+  rect(2, 12 + hb, 14, 2, look.skin);
+  rect(15, 3 + hb, 1, 11, shadeHex(look.skin, 0.86));
   const hair = look.hair;
-  if (!acc.includes('beret') && !acc.includes('chefhat') && !acc.includes('nursecap') && !acc.includes('cap')) {
+  if (!hatted) {
     switch (look.style) {
       case 'short':
-        rect(2, 0 + hb, 8, 2, hair);
-        rect(2, 2 + hb, 1, 2, hair);
-        rect(9, 2 + hb, 1, 2, hair);
+        box(1, 1 + hb, 16, 4, hair);
+        rect(1, 5 + hb, 2, 4, hair);
+        rect(15, 5 + hb, 2, 4, shadeHex(hair, 0.8));
         break;
       case 'long':
-        rect(2, 0 + hb, 8, 2, hair);
-        rect(2, 2 + hb, 1, 6, hair);
-        rect(9, 2 + hb, 1, 6, hair);
-        rect(3, 2 + hb, 2, 1, hair);
+        box(1, 1 + hb, 16, 4, hair);
+        rect(1, 5 + hb, 3, 15, hair);
+        rect(14, 5 + hb, 3, 15, shadeHex(hair, 0.8));
         break;
       case 'bun':
-        rect(2, 0 + hb, 8, 2, hair);
-        rect(2, 2 + hb, 1, 2, hair);
-        rect(9, 2 + hb, 1, 2, hair);
-        rect(5, -2 + hb, 3, 2, hair);
+        box(1, 1 + hb, 16, 4, hair);
+        rect(1, 5 + hb, 2, 4, hair);
+        rect(15, 5 + hb, 2, 4, shadeHex(hair, 0.8));
+        box(7, -1 + hb, 5, 3, hair);
         break;
       case 'tuft':
-        rect(2, 0 + hb, 8, 2, hair);
-        rect(2, 2 + hb, 1, 1, hair);
-        rect(9, 2 + hb, 1, 1, hair);
-        rect(6, -1 + hb, 1, 1, hair);
-        rect(7, -1 + hb, 1, 1, hair);
+        box(1, 1 + hb, 16, 4, hair);
+        rect(1, 5 + hb, 2, 3, hair);
+        rect(15, 5 + hb, 2, 3, shadeHex(hair, 0.8));
+        rect(8, -1 + hb, 2, 2, hair);
+        rect(10, 0 + hb, 2, 1, hair);
         break;
       case 'bald':
-        rect(5, 0 + hb, 2, 1, '#ffffff55');
+        rect(5, 3 + hb, 3, 1, '#ffffff66');
         break;
     }
+    if (look.style !== 'bald') rect(4, 2 + hb, 5, 1, shadeHex(hair, 1.25));
   } else if (look.style === 'long') {
-    rect(2, 2 + hb, 1, 6, hair);
-    rect(9, 2 + hb, 1, 6, hair);
+    rect(1, 5 + hb, 3, 15, hair);
+    rect(14, 5 + hb, 3, 15, shadeHex(hair, 0.8));
   } else if (look.style === 'bun') {
-    rect(2, 2 + hb, 1, 2, hair);
-    rect(9, 2 + hb, 1, 2, hair);
+    rect(1, 5 + hb, 2, 4, hair);
+    rect(15, 5 + hb, 2, 4, shadeHex(hair, 0.8));
   }
-  // 눈, 볼
-  rect(4, 3 + hb, 1, 2, '#2a1a14');
-  rect(7, 3 + hb, 1, 2, '#2a1a14');
-  rect(3, 5 + hb, 1, 1, '#f08a7a');
-  rect(8, 5 + hb, 1, 1, '#f08a7a');
-  if (look.f) {
-    // 속눈썹과 입술
-    rect(3, 3 + hb, 1, 1, '#2a1a14');
-    rect(8, 3 + hb, 1, 1, '#2a1a14');
-    rect(5, 6 + hb, 2, 1, '#d8506a');
-    // 머리 리본
-    if ((look.style === 'long' || look.style === 'bun') && !acc.includes('cap') && !acc.includes('beret') && !acc.includes('chefhat') && !acc.includes('nursecap')) {
-      rect(8, 0 + hb, 2, 2, '#e86a9a');
-      rect(8, 0 + hb, 1, 1, '#ffb0cc');
-    }
+  if (has('chefhat')) {
+    box(1, 2 + hb, 16, 3, '#f4efe4');
+    box(3, -1 + hb, 12, 4, '#ffffff');
+    rect(3, 2 + hb, 12, 1, '#dcd6c8');
+  }
+  if (has('beret')) {
+    box(1, 2 + hb, 16, 3, '#3b5a2a');
+    rect(8, 1 + hb, 2, 1, '#2a4a1a');
+  }
+  if (has('nursecap')) {
+    box(4, 1 + hb, 10, 4, '#ffffff');
+    rect(8, 2 + hb, 2, 2, '#e04a4a');
+  }
+  if (has('cap')) {
+    box(1, 2 + hb, 16, 3, look.top);
+    rect(10, 4 + hb, 7, 1, shadeHex(look.top, 0.8));
+  }
+  if (has('headphones')) {
+    rect(1, 1 + hb, 16, 1, '#333344');
+    rect(1, 5 + hb, 2, 5, '#333344');
+    rect(15, 5 + hb, 2, 5, '#333344');
+    rect(1, 6 + hb, 1, 3, '#e84a8a');
   }
 
-  // 장신구
-  for (const a of acc) {
-    switch (a) {
-      case 'chefhat':
-        rect(2, -1 + hb, 8, 2, '#f4efe4');
-        rect(3, -4 + hb, 6, 3, '#ffffff');
-        break;
-      case 'apron':
-        rect(3, 8 + bob, 6, bodyH - 1 - bob, '#f4efe4');
-        rect(3, 8 + bob, 1, 1, '#d8d0c0');
-        break;
-      case 'glasses':
-        rect(3, 3 + hb, 3, 2, '#bfe3ff');
-        rect(6, 3 + hb, 3, 2, '#bfe3ff');
-        rect(4, 3 + hb, 1, 2, '#2a1a14');
-        rect(7, 3 + hb, 1, 2, '#2a1a14');
-        rect(3, 3 + hb, 6, 1, '#223');
-        break;
-      case 'beret':
-        rect(1, -1 + hb, 9, 3, '#3b5a2a');
-        rect(5, -2 + hb, 2, 1, '#2a4a1a');
-        break;
-      case 'scar':
-        rect(8, 3 + hb, 1, 3, '#b45a4a');
-        break;
-      case 'camo':
-        rect(4, 8 + bob, 1, 1, '#3a4a1a');
-        rect(7, 9 + bob, 1, 1, '#8a9a5a');
-        rect(5, 10 + bob, 2, 1, '#3a4a1a');
-        break;
-      case 'nursecap':
-        rect(2, -2 + hb, 8, 3, '#ffffff');
-        rect(5, -2 + hb, 2, 3, '#e04a4a');
-        rect(4, -1 + hb, 4, 1, '#e04a4a');
-        break;
-      case 'headphones':
-        rect(2, -1 + hb, 8, 1, '#333344');
-        rect(1, 2 + hb, 2, 4, '#333344');
-        rect(9, 2 + hb, 2, 4, '#333344');
-        rect(1, 3 + hb, 1, 2, '#e84a8a');
-        break;
-      case 'beard':
-        // 수염은 머리색을 따른다 (어르신은 머리가 하얘서 흰 수염)
-        rect(4, 4 + hb, 4, 1, look.hair);
-        rect(2, 5 + hb, 1, 2, look.hair);
-        rect(9, 5 + hb, 1, 2, look.hair);
-        rect(4, 6 + hb, 4, 1, look.hair);
-        break;
-      case 'labcoat':
-        // 흰 가운: 앞이 트여 속옷이 가운데로 보이고, 허리 아래까지 내려온다
-        rect(3, 7 + bob, 2, bodyH + 2 - bob, '#f4efe4');
-        rect(7, 7 + bob, 2, bodyH + 2 - bob, '#f4efe4');
-        rect(3, 7 + bodyH + 1, 2, 1, '#d8d0c0');
-        rect(7, 7 + bodyH + 1, 2, 1, '#d8d0c0');
-        rect(2, 7 + bob, 1, bodyH - 1, '#f4efe4');
-        rect(9, 7 + bob, 1, bodyH - 1, '#f4efe4');
-        break;
-      case 'tie':
-        rect(5, 7 + bob, 2, 1, '#f4efe4');
-        rect(5, 8 + bob, 2, 3, '#b8302a');
-        break;
-      case 'badge':
-        rect(3, 9 + bob, 2, 1, '#f4efe4');
-        rect(3, 10 + bob, 2, 1, '#6a8ab8');
-        break;
-      case 'toolbelt':
-        rect(3, 7 + bodyH - 2 + bob, 6, 1, '#6a4a2a');
-        rect(7, 7 + bodyH - 1 + bob, 1, 2, '#b8b0a0');
-        break;
-      case 'cane':
-        rect(11, 9, 1, H - 9, '#7a4a2a');
-        rect(10, 8, 2, 1, '#7a4a2a');
-        break;
-      case 'vest':
-        rect(3, 7 + bob, 2, bodyH - bob, '#f2c230');
-        rect(7, 7 + bob, 2, bodyH - bob, '#f2c230');
-        rect(7, 8 + bob, 1, 1, '#ffffff');
-        break;
-      case 'cap':
-        rect(2, -1 + hb, 8, 3, look.top);
-        rect(7, 1 + hb, 4, 1, look.top2);
-        break;
+  // 얼굴: 작은 눈, 볼, 입 (눈에 하이라이트는 없다)
+  rect(4, 8 + hb, 2, 2, '#2a1a14');
+  rect(12, 8 + hb, 2, 2, '#2a1a14');
+  rect(3, 10 + hb, 2, 1, '#f08a7a');
+  rect(13, 10 + hb, 2, 1, '#f08a7a');
+  rect(8, 11 + hb, 2, 1, look.f ? '#d8506a' : '#a04a3a');
+  if (look.f) {
+    rect(4, 7 + hb, 2, 1, '#2a1a14');
+    rect(12, 7 + hb, 2, 1, '#2a1a14');
+    if ((look.style === 'long' || look.style === 'bun') && !hatted) {
+      rect(13, 1 + hb, 3, 3, '#e86a9a');
+      rect(13, 1 + hb, 1, 1, '#ffb0cc');
     }
+  }
+  if (has('scar')) rect(13, 6 + hb, 1, 4, '#b45a4a');
+  if (has('glasses')) {
+    const fr = glassColor(look);
+    rect(2, 7 + hb, 6, 1, fr);
+    rect(2, 10 + hb, 6, 1, fr);
+    rect(2, 8 + hb, 1, 2, fr);
+    rect(7, 8 + hb, 1, 2, fr);
+    rect(10, 7 + hb, 6, 1, fr);
+    rect(10, 10 + hb, 6, 1, fr);
+    rect(10, 8 + hb, 1, 2, fr);
+    rect(15, 8 + hb, 1, 2, fr);
+    rect(8, 8 + hb, 2, 1, fr);
+  }
+  if (has('beard')) {
+    // 수염은 머리색을 따른다 (어르신은 머리가 하얘서 흰 수염)
+    rect(6, 10 + hb, 6, 1, hair);
+    rect(3, 11 + hb, 2, 2, hair);
+    rect(13, 11 + hb, 2, 2, hair);
+    rect(4, 12 + hb, 10, 2, hair);
+  }
+
+  // 윤곽선
+  const c = makeCanvas(PERSON_W, Hc);
+  const g = c.getContext('2d') as Ctx;
+  const filled = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < PERSON_W && y < Hc && buf[y * PERSON_W + x] !== null;
+  for (let y = 0; y < Hc; y++) {
+    for (let x = 0; x < PERSON_W; x++) {
+      const v = buf[y * PERSON_W + x];
+      if (v) {
+        g.fillStyle = sil ? '#1a1410' : v;
+        g.fillRect(x, y, 1, 1);
+      } else if (filled(x - 1, y) || filled(x + 1, y) || filled(x, y - 1) || filled(x, y + 1)) {
+        g.fillStyle = sil ? '#1a1410' : OUT;
+        g.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+  return c;
+}
+
+/** fx: 가운데 x, fy: 발바닥 y(윤곽선 바로 아래). 키는 어른 31, 아이 27 */
+export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, o: PoseOpts): void {
+  const f = o.frame % 2;
+  const key = `${f}|${o.moving ? 1 : 0}|${o.silhouette ? 1 : 0}|${look.top}|${look.top2}|${look.pants}|${look.shoes}|${look.acc.join(',')}|${look.hair}|${look.style}|${look.skin}|${look.f ? 1 : 0}|${look.skirt ? 1 : 0}|${look.kid ? 1 : 0}`;
+  let m = personCache.get(look);
+  if (!m) {
+    m = new Map();
+    personCache.set(look, m);
+  }
+  let img = m.get(key);
+  if (!img) {
+    img = buildPerson(look, f, o.moving, !!o.silhouette);
+    m.set(key, img);
+  }
+  const top = Math.round(fy) - img.height;
+  const left = Math.round(fx) - PERSON_W / 2;
+  if (o.dir > 0) {
+    ctx.drawImage(img, left, top);
+  } else {
+    ctx.save();
+    ctx.translate(left + PERSON_W, top);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, 0, 0);
+    ctx.restore();
   }
 }
 
@@ -386,7 +463,7 @@ export function portraitURL(survId: string, silhouette = false): string {
     ctx.fillStyle = silhouette ? '#2a221a' : '#4a3c2e';
     ctx.fillRect(0, 20, 24, 6);
     if (d.look.cat) drawCat(ctx, 12, 22, 0, 1, false, silhouette);
-    else drawPerson(ctx, d.look, 12, 23, { frame: 0, moving: false, dir: 1, silhouette });
+    else drawPerson(ctx, d.look, 12, personHeight(d.look) - 1, { frame: 0, moving: false, dir: 1, silhouette });
   }
   const url = c.toDataURL();
   portraitCache.set(key, url);
@@ -406,7 +483,7 @@ export function profPortraitURL(profId: string): string {
   ctx.fillStyle = '#2a221a';
   ctx.fillRect(0, 20, 24, 6);
   if (pr.look.cat) drawCat(ctx, 12, 22, 0, 1, false, true);
-  else drawPerson(ctx, pr.look, 12, 23, { frame: 0, moving: false, dir: 1, silhouette: true });
+  else drawPerson(ctx, pr.look, 12, personHeight(pr.look) - 1, { frame: 0, moving: false, dir: 1, silhouette: true });
   const url = c.toDataURL();
   portraitCache.set(key, url);
   return url;
@@ -420,6 +497,6 @@ export function lookPortraitURL(look: Look): string {
   ctx.fillRect(0, 0, 24, 26);
   ctx.fillStyle = '#4a3c2e';
   ctx.fillRect(0, 20, 24, 6);
-  drawPerson(ctx, look, 12, 23, { frame: 0, moving: false, dir: 1 });
+  drawPerson(ctx, look, 12, personHeight(look) - 1, { frame: 0, moving: false, dir: 1 });
   return c.toDataURL();
 }

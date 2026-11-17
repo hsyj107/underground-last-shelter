@@ -1,6 +1,6 @@
 // 지상 + 지하 7층 편의점 단면을 그리는 캔버스 장면.
 import { SHELF_ORDER, SURV_BY_ID } from './data.ts';
-import { drawBag, drawCat, drawPerson, drawText, drawZombie, iconCanvas } from './sprites.ts';
+import { drawBag, drawCat, drawPerson, drawText, drawZombie, iconCanvas, personHeight } from './sprites.ts';
 
 export const SW = 180;
 export const SH = 168;
@@ -195,15 +195,15 @@ export class Scene {
         return;
       }
     }
-    if (m.visitor && lx >= 10 && lx <= 32 && ly >= 120 && ly <= 152) {
+    if (m.visitor && lx >= 8 && lx <= 36 && ly >= 108 && ly <= 152) {
       this.handlers.onVisitor();
       return;
     }
     const list = [...this.walkers.values()].sort((a, b) => b.lane - a.lane);
     for (const w of list) {
-      const cat = !!SURV_BY_ID[w.id]?.look.cat;
-      const h = cat ? 10 : 20;
-      if (Math.abs(lx - w.x) <= 8 && ly >= w.lane - h && ly <= w.lane + 2) {
+      const sl = SURV_BY_ID[w.id]?.look;
+      const h = sl?.cat ? 10 : sl ? personHeight(sl) : 20;
+      if (Math.abs(lx - w.x) <= 9 && ly >= w.lane - h && ly <= w.lane + 2) {
         this.handlers.onSurvivor(w.id, w.x, w.lane - h);
         return;
       }
@@ -228,7 +228,7 @@ export class Scene {
         this.walkers.set(id, {
           id,
           x: 150,
-          lane: 146 + (idx % 4) * 6,
+          lane: 142 + (idx % 5) * 5,
           tx: 60 + this.rand() * 80,
           dir: -1,
           pause: 0,
@@ -246,7 +246,7 @@ export class Scene {
     for (const w of this.walkers.values()) {
       const gi = guards.indexOf(w.id);
       const wi = workers.indexOf(w.id);
-      w.post = gi >= 0 ? { x: 38 + gi * 9, face: -1, kind: 'guard' } : wi >= 0 ? { x: 104 + (wi % 5) * 10, face: wi % 2 ? 1 : -1, kind: 'work' } : null;
+      w.post = gi >= 0 ? { x: 30 + gi * 15, face: -1, kind: 'guard' } : wi >= 0 ? { x: 84 + (wi % 4) * 17, face: wi % 2 ? 1 : -1, kind: 'work' } : null;
     }
     // 일하는 곳에서 생산하는 느낌: 잎사귀와 물방울
     this.workT -= dt;
@@ -571,24 +571,24 @@ export class Scene {
               // 소총을 들고 문 쪽을 노려본다. 습격 중에는 총구를 치켜든다.
               const up = m.alert ? 5 : 0;
               ctx.fillStyle = '#2b2b30';
-              ctx.fillRect(px + fx * 3 - (fx < 0 ? 7 : 0), w.lane - 8 - up, 8, 1);
+              ctx.fillRect(px + fx * 6 - (fx < 0 ? 11 : 0), w.lane - 12 - up, 12, 2);
               ctx.fillStyle = '#6a4a2a';
-              ctx.fillRect(px + fx * 3 - (fx < 0 ? 2 : 0), w.lane - 8 - up, 3, 2);
+              ctx.fillRect(px + fx * 6 - (fx < 0 ? 3 : 0), w.lane - 12 - up, 4, 3);
               if (m.alert && Math.floor(this.t * 4) % 2 === 0) {
                 ctx.fillStyle = '#ff5a4a';
-                ctx.fillRect(px - 1, w.lane - 20, 3, 3);
+                ctx.fillRect(px - 1, w.lane - personHeight(d.look) - 5, 3, 3);
               }
             } else if (working) {
               // 호미질
               const sw = Math.floor(this.t * 3 + w.seed) % 2;
               ctx.fillStyle = '#8a6d4b';
-              ctx.fillRect(px + fx * 4 - (fx < 0 ? 1 : 0), w.lane - 9 + sw * 2, 1, 7);
+              ctx.fillRect(px + fx * 8 - (fx < 0 ? 1 : 0), w.lane - 14 + sw * 2, 1, 10);
               ctx.fillStyle = '#b8b0a0';
-              ctx.fillRect(px + fx * 4 - (fx < 0 ? 3 : 0), w.lane - 3 + sw * 2, 3, 1);
+              ctx.fillRect(px + fx * 8 - (fx < 0 ? 3 : 0), w.lane - 5 + sw * 2, 3, 1);
             }
             if (m.sick.includes(w.id) && Math.floor(this.t * 2) % 2 === 0) {
               ctx.fillStyle = '#7fd05a';
-              ctx.fillRect(px - 1, w.lane - 21, 3, 3);
+              ctx.fillRect(px - 1, w.lane - personHeight(d.look) - 5, 3, 3);
             }
           }
         },
@@ -608,10 +608,10 @@ export class Scene {
           else if (d) drawPerson(ctx, d.look, 22, 148, { frame: Math.floor(this.t * 1.5), moving: false, dir: 1, silhouette: true });
           const blink = Math.floor(this.t * 3) % 2 === 0;
           ctx.fillStyle = '#f4efe4';
-          ctx.fillRect(26, 120 + (blink ? 0 : 1), 9, 10);
+          ctx.fillRect(30, 106 + (blink ? 0 : 1), 9, 10);
           ctx.fillStyle = '#2b1d14';
-          ctx.fillRect(30, 122 + (blink ? 0 : 1), 1, 4);
-          ctx.fillRect(30, 127 + (blink ? 0 : 1), 1, 1);
+          ctx.fillRect(34, 108 + (blink ? 0 : 1), 1, 4);
+          ctx.fillRect(34, 113 + (blink ? 0 : 1), 1, 1);
         },
       });
     }
