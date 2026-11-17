@@ -684,7 +684,7 @@ function ccLook(): Look {
   const o = ORIGIN_BY_ID[cc.origin];
   const jo = JOB_OUTFIT[cc.job] ?? JOB_OUTFIT.clerk;
   // 의료인은 조끼 대신 가운을 입는다
-  const acc = [...new Set([...o.acc, ...jo.acc, ...cc.acc])].filter((a) => !(cc.gender === 'f' && a === 'beard') && !(a === 'vest' && jo.acc.includes('labcoat')));
+  const acc = [...new Set([...o.acc, ...jo.acc, ...cc.acc])].filter((a) => !(cc.gender === 'f' && a === 'beard') && !(a === 'vest' && jo.acc.includes('labcoat')) && !(a === 'cap' && !cc.acc.includes('cap') && cc.job === 'medic'));
   return {
     skin: cc.skin,
     hair: cc.hair,
