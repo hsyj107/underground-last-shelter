@@ -34,6 +34,8 @@ test('데이터 무결성: 아이템/모양/구역', () => {
   assert.ok(ITEMS.length <= 48);
   // 호감 아이템이 실제 존재
   for (const s of PROFS) for (const id of s.likes.items) assert.ok(ITEM_BY_ID[id], `${s.id} 좋아하는 물건 ${id}`);
+  assert.ok(PROFS.length >= 30, `직업 ${PROFS.length}종`);
+  assert.equal(new Set(PROFS.map((p) => p.id)).size, PROFS.length);
   for (const s of PROFS) if (s.unlock.type === 'item') assert.ok(ITEM_BY_ID[s.unlock.id]);
   for (const s of PROFS) {
     assert.equal(s.chapters.length, 3);
@@ -82,7 +84,27 @@ test('자리 비움 한도: 한도를 넘는 시간은 흐르지 않는다', () 
   assert.ok(Math.abs(s.res.food - s2.res.food) < 1e-6);
 });
 
-test('첫 방문자는 식당 사장이고 영입하면 크루가 된다', () => {
+/** 지금 올 수 있는 직업을 전부 영입해 둔다 (except 는 남겨 둔다) */
+function fillCrew(s: g.State, except = ''): void {
+  for (let guard = 0; guard < 60; guard++) {
+    const d = PROFS.find((p) => p.id !== except && !g.livingProfs(s).has(p.id) && g.unlockMet(s, p.unlock));
+    if (!d) return;
+    join(s, d.id);
+  }
+}
+
+test('첫 방문자는 직업이 고정되지 않고, 영입하면 크루가 된다', () => {
+  const seen = new Set<string>();
+  for (let i = 0; i < 80; i++) {
+    g.setRng(Math.random);
+    const s = g.newState('a', 0);
+    g.tick(s, 25_000);
+    assert.ok(s.visitor);
+    const pr = PROFS.find((p) => p.id === s.people[s.visitor!].prof)!;
+    assert.equal(pr.unlock.type, 'start'); // 조건 없는 직업만 첫 손님이 될 수 있다
+    seen.add(pr.id);
+  }
+  assert.ok(seen.size >= 8, `첫 손님 종류 ${seen.size}`);
   g.setRng(Math.random);
   const s = g.newState('a', 0);
   assert.deepEqual(g.tick(s, 1000), []);
@@ -90,24 +112,45 @@ test('첫 방문자는 식당 사장이고 영입하면 크루가 된다', () =>
   assert.equal(ev.length, 1);
   assert.equal(ev[0].type, 'visitor');
   const id = s.visitor!;
-  assert.equal(s.people[id].prof, 'cook');
   assert.ok(g.recruit(s, id, 25_000));
   assert.deepEqual(s.crew, [id]);
   assert.equal(s.visitor, null);
   assert.ok(!g.recruit(s, id, 25_001));
 });
 
-test('조건을 만족해야 다음 생존자가 오고, 같은 직업은 한 명만 산다', () => {
+test('조건 직업은 조건을 만족해야 오고, 같은 직업은 한 명만 산다', () => {
   g.setRng(Math.random);
   const s = g.newState('a', 0);
-  join(s, 'cook');
+  // 조건 없는 직업을 전부 영입해 두면 조건 직업만 남는다
+  fillCrew(s);
   s.nextVisit = 0;
-  assert.deepEqual(g.tick(s, 1), []); // 도감 6종 미만
+  assert.deepEqual(g.tick(s, 1), []); // 조건 직업은 아직 못 온다
+  assert.equal(g.pickVisitor(s), null);
   for (const id of ['f_tuna', 'f_peach', 'f_beans', 'f_spam', 'f_ramen', 'f_snack']) s.found[id] = 1;
+  const next = g.pickVisitor(s);
+  assert.ok(next && next.unlock.type === 'found');
   s.nextVisit = 0;
   const ev = g.tick(s, 2);
   assert.equal(ev.length, 1);
-  assert.equal(s.people[s.visitor!].prof, 'dev');
+  const prof = s.people[s.visitor!].prof;
+  assert.ok(PROFS.find((p) => p.id === prof)!.unlock.type === 'found');
+});
+
+test('방문자 가중치: 식량이 바닥나면 식량 직업이 더 자주 온다', () => {
+  g.setRng(Math.random);
+  const count = (food: number): number => {
+    let n = 0;
+    for (let i = 0; i < 600; i++) {
+      const s = g.newState('a', 0);
+      s.res.food = food;
+      s.res.water = 100;
+      s.res.med = 30;
+      const p = g.pickVisitor(s)!;
+      if (p.buff.kind === 'prod_food') n++;
+    }
+    return n;
+  };
+  assert.ok(count(5) > count(100) * 1.4, '식량 부족 때 가중');
 });
 
 test('생존자 생성: 직업의 핵심 능력치는 보장되고 이름은 겹치지 않는다', () => {
@@ -388,6 +431,8 @@ test('죽은 직업은 다시 후보가 된다 (새 얼굴, 새 이름으로)', 
   const old = join(s, 'cook');
   s.crew = [];
   s.dead.push({ id: old, day: 1, zone: 'mart', last: '' });
+  // 후보가 요리사 하나뿐인 상황을 만든다: 나머지 직업은 이미 곁에 있다
+  fillCrew(s, 'cook');
   s.nextVisit = 0;
   const ev = g.tick(s, 1);
   assert.equal(ev.length, 1);

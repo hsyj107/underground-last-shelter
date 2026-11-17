@@ -341,7 +341,7 @@ export function tick(s: State, now: number): GameEvent[] {
     }
   }
   if (!s.visitor && now >= s.nextVisit) {
-    const next = PROFS.find((d) => !livingProfs(s).has(d.id) && unlockMet(s, d.unlock));
+    const next = pickVisitor(s);
     if (next) {
       const p = makePerson(s, next);
       s.visitor = p.id;
@@ -437,6 +437,30 @@ export function livingProfs(s: State): Set<string> {
   for (const id of s.crew) out.add(s.people[id]?.prof ?? '');
   if (s.visitor) out.add(s.people[s.visitor]?.prof ?? '');
   return out;
+}
+
+/**
+ * 다음 방문자의 직업. 조건을 만족한 직업 중에서 가중치 랜덤으로 뽑는다.
+ * 지금 모자란 쪽(식량·식수·의약품)을 채워 주는 사람이 조금 더 잘 온다.
+ */
+export function pickVisitor(s: State): ProfDef | null {
+  const here = livingProfs(s);
+  const cands = PROFS.filter((d) => !here.has(d.id) && unlockMet(s, d.unlock));
+  if (!cands.length) return null;
+  const weights = cands.map((d) => {
+    let w = 1;
+    if (d.buff.kind === 'prod_food' && s.res.food < 30) w *= 3;
+    if (d.buff.kind === 'prod_water' && s.res.water < 30) w *= 3;
+    if (d.buff.kind === 'med_yield' && s.res.med < 10) w *= 2.5;
+    if (d.buff.kind === 'calm' && s.crew.length >= 3 && (s.ration !== 'normal' || s.shortMs > 0)) w *= 2;
+    return w;
+  });
+  let r = rng() * weights.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < cands.length; i++) {
+    r -= weights[i];
+    if (r < 0) return cands[i];
+  }
+  return cands[cands.length - 1];
 }
 
 export function unlockMet(s: State, u: Unlock): boolean {

@@ -499,8 +499,12 @@ function crewHtml(): string {
   h += row('me');
   for (const id of S.crew) h += row(id);
   const here = new Set([...S.crew, ...(S.visitor ? [S.visitor] : [])].map((id) => S.people[id]?.prof));
+  const open = PROFS.filter((d) => !here.has(d.id) && d.unlock.type === 'start').length;
+  if (open > 0) {
+    h += `<div class="card crew lockd"><span class="ct"><b>아직 만나지 못한 사람들 ${open}종</b><small>언제든 문을 두드릴 수 있다. 누가 올지는 모른다.</small></span></div>`;
+  }
   for (const d of PROFS) {
-    if (here.has(d.id)) continue;
+    if (here.has(d.id) || d.unlock.type === 'start') continue;
     h += `<div class="card crew lockd"><img class="pt" src="${profPortraitURL(d.id)}" alt=""><span class="ct"><b>???</b><small>${d.hint}</small></span></div>`;
   }
   if (S.dead.length) {

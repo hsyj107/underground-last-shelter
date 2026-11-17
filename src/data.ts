@@ -1,3 +1,4 @@
+import { EXTRA_PROFS } from './profs_extra.ts';
 // 게임 데이터: 물건, 탐사 구역, 생존자. 규칙(계산)은 state.ts, 그림은 sprites.ts 에 있다.
 
 export type Rarity = 'common' | 'good' | 'rare' | 'legend';
@@ -408,7 +409,7 @@ export const OLD_GIVEN = ['만복', '덕팔', '순길', '영철', '봉수', '옥
 export const KID_NAMES = ['두리', '콩이', '보리', '하늘', '단비', '초롱', '별이', '새롬'];
 export const CAT_NAMES = ['나비', '치즈', '고등어', '먼지', '두부', '모찌', '삼색이', '까망이'];
 
-export const PROFS: ProfDef[] = [
+const CORE_PROFS: ProfDef[] = [
   {
     id: 'cook', title: '전직 해장국집 사장',
     look: { skin: '#f0c8a0', hair: '#4a3022', style: 'bun', top: '#d8d0c0', top2: '#f4efe4', pants: '#4a5a6a', shoes: '#5a4a3a', acc: ['chefhat', 'apron'] },
@@ -543,6 +544,9 @@ export const PROFS: ProfDef[] = [
     lastWords: ['"아저씨, 뚜껑 내 주머니에 있어요. 가져요."', '"무서우면 고양이랑 자면 된댔는데…"', '"나 커서… 부관리자 할 건데."'],
   },
 ];
+
+/** 기본 8종 + 일반 직업들. 오는 순서는 정해져 있지 않다 */
+export const PROFS: ProfDef[] = [...CORE_PROFS, ...EXTRA_PROFS];
 
 export const PROF_BY_ID: Record<string, ProfDef> = Object.fromEntries(PROFS.map((p) => [p.id, p]));
 
