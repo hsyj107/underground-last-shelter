@@ -1,5 +1,5 @@
 // 코드로 그리는 도트 그림: 물건 아이콘, 생존자, 좀비, 고양이, 작은 글자.
-import { ITEM_BY_ID, SURV_BY_ID } from './data.ts';
+import { ITEM_BY_ID, PROF_BY_ID, SURV_BY_ID } from './data.ts';
 import type { Look, Pal } from './data.ts';
 import { SHAPES } from './shapes.ts';
 
@@ -347,6 +347,25 @@ export function portraitURL(survId: string, silhouette = false): string {
     if (d.look.cat) drawCat(ctx, 12, 22, 0, 1, false, silhouette);
     else drawPerson(ctx, d.look, 12, 23, { frame: 0, moving: false, dir: 1, silhouette });
   }
+  const url = c.toDataURL();
+  portraitCache.set(key, url);
+  return url;
+}
+
+/** 아직 만나지 못한 직업의 실루엣 */
+export function profPortraitURL(profId: string): string {
+  const key = `prof|${profId}`;
+  const hit = portraitCache.get(key);
+  if (hit) return hit;
+  const pr = PROF_BY_ID[profId];
+  const c = makeCanvas(24, 26);
+  const ctx = c.getContext('2d') as Ctx;
+  ctx.fillStyle = '#201a14';
+  ctx.fillRect(0, 0, 24, 26);
+  ctx.fillStyle = '#2a221a';
+  ctx.fillRect(0, 20, 24, 6);
+  if (pr.look.cat) drawCat(ctx, 12, 22, 0, 1, false, true);
+  else drawPerson(ctx, pr.look, 12, 23, { frame: 0, moving: false, dir: 1, silhouette: true });
   const url = c.toDataURL();
   portraitCache.set(key, url);
   return url;

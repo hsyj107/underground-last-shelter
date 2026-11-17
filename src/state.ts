@@ -1,18 +1,28 @@
 // 게임 규칙. 화면과 무관하게 동작하므로 node 로 그대로 테스트할 수 있다.
 import {
+  CAT_NAMES,
   CAT_ORDER,
   CHAPTER_AFF,
+  DARK_HAIRS,
+  GIVEN,
   ITEMS,
   ITEM_BY_ID,
+  KID_NAMES,
+  OLD_GIVEN,
   PLAYER,
+  PROFS,
+  PROF_BY_ID,
   RARITY,
-  SURVIVORS,
+  SKINS,
+  SURNAMES,
   SURV_BY_ID,
   UPGRADES,
   ZONES,
   ZONE_BY_ID,
+  registerPerson,
+  resetRegistry,
 } from './data.ts';
-import type { Cat, SurvDef, Unlock, UpgKey, ZoneDef } from './data.ts';
+import type { Cat, Look, Person, ProfDef, Stats, SurvDef, Unlock, UpgKey, ZoneDef } from './data.ts';
 
 export const config = { speed: 1 };
 let rng: () => number = Math.random;
@@ -25,6 +35,16 @@ export interface ExpResult {
   caps: number;
   caught: boolean;
   line: string;
+  /** 출발할 때 이미 정해진 죽음. 돌아와서 가방을 열 때 알게 된다. */
+  deaths: { id: string; last: string }[];
+}
+
+/** 추모비에 남는 기록 */
+export interface Grave {
+  id: string;
+  day: number;
+  zone: string;
+  last: string;
 }
 
 export interface Expedition {
@@ -38,7 +58,11 @@ export interface Expedition {
 }
 
 export interface State {
-  v: 1;
+  v: 2;
+  /** 지금까지 만난 모든 사람(죽은 사람 포함) */
+  people: Record<string, Person>;
+  dead: Grave[];
+  nextPid: number;
   name: string;
   created: number;
   last: number;
@@ -69,8 +93,12 @@ export const BASE_INCOME = 2;
 const ms = (n: number): number => Math.round(n / config.speed);
 
 export function newState(name: string, now: number): State {
+  resetRegistry();
   return {
-    v: 1,
+    v: 2,
+    people: {},
+    dead: [],
+    nextPid: 1,
     name: name.trim() || '점장',
     created: now,
     last: now,
@@ -208,15 +236,71 @@ export function tick(s: State, now: number): GameEvent[] {
     }
   }
   if (!s.visitor && now >= s.nextVisit) {
-    const next = SURVIVORS.find((d) => !s.crew.includes(d.id) && unlockMet(s, d.unlock));
+    const next = PROFS.find((d) => !livingProfs(s).has(d.id) && unlockMet(s, d.unlock));
     if (next) {
-      s.visitor = next.id;
-      events.push({ type: 'visitor', id: next.id });
+      const p = makePerson(s, next);
+      s.visitor = p.id;
+      events.push({ type: 'visitor', id: p.id });
     } else {
       s.nextVisit = now + ms(8000);
     }
   }
   return events;
+}
+
+
+// ---------- 생존자 만들기 ----------
+
+function randInt(lo: number, hi: number): number {
+  return lo + Math.floor(rng() * (hi - lo + 1));
+}
+function choice<T>(a: readonly T[]): T {
+  return a[Math.floor(rng() * a.length)];
+}
+
+function usedNames(s: State): Set<string> {
+  return new Set(Object.values(s.people).map((p) => p.name));
+}
+
+function makeName(s: State, kind: ProfDef['names']): string {
+  const used = usedNames(s);
+  for (let i = 0; i < 30; i++) {
+    let n: string;
+    if (kind === 'cat') n = choice(CAT_NAMES);
+    else if (kind === 'kid') n = choice(KID_NAMES);
+    else if (kind === 'old') n = choice(SURNAMES) + choice(OLD_GIVEN);
+    else n = choice(SURNAMES) + choice(GIVEN);
+    if (!used.has(n)) return n;
+  }
+  return choice(SURNAMES) + choice(GIVEN) + '2';
+}
+
+/** 직업의 핵심 능력치는 보장 범위 안에서, 겉모습과 이름은 무작위로 */
+export function makePerson(s: State, prof: ProfDef): Person {
+  const id = `p${s.nextPid++}`;
+  const stats: Stats = {
+    str: randInt(...prof.range.str),
+    agi: randInt(...prof.range.agi),
+    med: randInt(...prof.range.med),
+  };
+  const look: Look = { ...prof.look, acc: [...prof.look.acc] };
+  if (!look.cat) {
+    look.skin = choice(SKINS);
+    look.hair = choice(prof.hairs ?? DARK_HAIRS);
+    if (prof.styles) look.style = choice(prof.styles);
+  }
+  const person: Person = { id, prof: prof.id, name: makeName(s, prof.names), look, stats };
+  s.people[id] = person;
+  registerPerson(person);
+  return person;
+}
+
+/** 지금 살아서 합류해 있거나 문 앞에 서 있는 직업 */
+export function livingProfs(s: State): Set<string> {
+  const out = new Set<string>();
+  for (const id of s.crew) out.add(s.people[id]?.prof ?? '');
+  if (s.visitor) out.add(s.people[s.visitor]?.prof ?? '');
+  return out;
 }
 
 export function unlockMet(s: State, u: Unlock): boolean {
@@ -256,6 +340,18 @@ export interface Preview {
   risk: number;
   loot: number;
   power: number;
+  /** 들키면 이 사람이 죽을 확률 (점장 제외) */
+  deathIf: Record<string, number>;
+  /** 이번 탐사에서 누군가 죽을 확률 */
+  anyDeath: number;
+}
+
+/** 들켰을 때 죽을 확률. 전투가 세면 낮고, 팀에 의료 능력치가 높은 사람이 있으면 더 낮다. */
+export function deathChance(id: string, members: string[]): number {
+  const d = SURV_BY_ID[id];
+  if (!d || id === 'me') return 0;
+  const medic = Math.max(0, ...members.map((m) => SURV_BY_ID[m]?.stats.med ?? 0));
+  return Math.max(0.03, (0.5 - 0.04 * d.stats.str) * (1 - Math.min(0.4, 0.04 * medic)));
 }
 
 export function previewExpedition(s: State, zoneId: string, members: string[]): Preview {
@@ -274,7 +370,13 @@ export function previewExpedition(s: State, zoneId: string, members: string[]): 
     if (d.buff.kind === 'exp_loot') loot += Math.round(d.buff.value * buffScale(s, id));
   }
   const risk = Math.min(0.5, Math.max(0, (zone.D - power) * 0.12)) * guard;
-  return { ms: expeditionMs(s, zone), risk, loot, power };
+  const deathIf: Record<string, number> = {};
+  let safe = 1;
+  for (const id of members) {
+    deathIf[id] = deathChance(id, members);
+    safe *= 1 - risk * deathIf[id];
+  }
+  return { ms: expeditionMs(s, zone), risk, loot, power, deathIf, anyDeath: 1 - safe };
 }
 
 function luckOf(s: State, members: string[]): number {
@@ -326,8 +428,19 @@ export function startExpedition(s: State, zoneId: string, members: string[], now
   for (let i = 0; i < n; i++) items.push(pickItem(s, zone, luck));
   let caps = Math.round((6 + 8 * zone.D) * (0.7 + rng() * 0.6));
   if (caught) caps = Math.floor(caps / 2);
+  const deaths: ExpResult['deaths'] = [];
+  if (caught) {
+    for (const m of members) {
+      if (rng() < pv.deathIf[m]) {
+        const pr = PROF_BY_ID[s.people[m].prof];
+        deaths.push({ id: m, last: pr.lastWords[Math.floor(rng() * pr.lastWords.length)] });
+      }
+    }
+  }
   const line = caught
-    ? '좀비 떼에 들켜서 도망쳐 왔다! 가방이 반쯤 비었다…'
+    ? deaths.length
+      ? '좀비 떼에 포위당했다. 전부 돌아오지는 못했다…'
+      : '좀비 떼에 들켜서 도망쳐 왔다! 가방이 반쯤 비었다…'
     : zone.lines[Math.floor(rng() * zone.lines.length)];
   const exp: Expedition = {
     id: `e${s.nextExpId++}`,
@@ -335,7 +448,7 @@ export function startExpedition(s: State, zoneId: string, members: string[], now
     members: [...members],
     start: now,
     end: now + pv.ms,
-    result: { items, caps, caught, line },
+    result: { items, caps, caught, line, deaths },
     notified: false,
   };
   s.exps.push(exp);
@@ -352,6 +465,7 @@ export interface Report {
   firstClear: boolean;
   chapters: { id: string; chapter: number }[];
   rewards: number;
+  deaths: { id: string; name: string; title: string; last: string }[];
 }
 
 export function claimExpedition(s: State, expId: string, now: number): Report | null {
@@ -383,17 +497,26 @@ export function claimExpedition(s: State, expId: string, now: number): Report | 
   s.stats.expeditions += 1;
   if (e.result.caught) {
     s.stats.caught += 1;
-    for (const m of e.members) s.tired[m] = now + ms(120000);
+    for (const m of e.members) if (!(e.result.deaths ?? []).some((x) => x.id === m)) s.tired[m] = now + ms(120000);
   }
+  const deaths: Report['deaths'] = [];
+  for (const dd of e.result.deaths ?? []) {
+    const d = SURV_BY_ID[dd.id];
+    if (!d || !s.crew.includes(dd.id)) continue;
+    s.crew = s.crew.filter((c) => c !== dd.id);
+    s.dead.push({ id: dd.id, day: dayNumber(s, now), zone: e.zone, last: dd.last });
+    deaths.push({ id: dd.id, name: d.name, title: d.title, last: dd.last });
+  }
+  const gone = new Set(deaths.map((d) => d.id));
   const chapters: Report['chapters'] = [];
   let rewards = 0;
   for (const m of e.members) {
-    if (m === 'me') continue;
+    if (m === 'me' || gone.has(m)) continue;
     const r = addAffinity(s, m, 4);
     r.chapters.forEach((c) => chapters.push({ id: m, chapter: c }));
     rewards += r.reward;
   }
-  return { zone: e.zone, items, caps: e.result.caps, bonusCaps, caught: e.result.caught, line: e.result.line, firstClear, chapters, rewards };
+  return { zone: e.zone, items, caps: e.result.caps, bonusCaps, caught: e.result.caught, line: e.result.line, firstClear, chapters, rewards, deaths };
 }
 
 // ---------- 호감도 · 대화 · 선물 ----------
@@ -505,7 +628,7 @@ export function buyUpgrade(s: State, key: UpgKey): boolean {
 
 // ---------- 저장 ----------
 
-const KEY = 'last-shelter-b7-v1';
+const KEY = 'last-shelter-b7-v1'; // v2 이전 저장은 형식이 달라 불러오지 않는다
 
 export function saveState(s: State): void {
   try {
@@ -521,9 +644,12 @@ export function loadState(): State | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const d = JSON.parse(raw) as Partial<State>;
-    if (d.v !== 1 || typeof d.created !== 'number') return null;
+    if (d.v !== 2 || typeof d.created !== 'number') return null;
     const base = newState(d.name ?? '점장', d.created);
-    return { ...base, ...d, upg: { ...base.upg, ...(d.upg ?? {}) }, stats: { ...base.stats, ...(d.stats ?? {}) } } as State;
+    const st = { ...base, ...d, upg: { ...base.upg, ...(d.upg ?? {}) }, stats: { ...base.stats, ...(d.stats ?? {}) } } as State;
+    resetRegistry();
+    for (const p of Object.values(st.people)) registerPerson(p);
+    return st;
   } catch {
     return null;
   }

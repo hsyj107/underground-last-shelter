@@ -6,7 +6,8 @@ import {
   ITEMS,
   ITEM_BY_ID,
   RARITY,
-  SURVIVORS,
+  PROFS,
+  STAT_NAME,
   SURV_BY_ID,
   UPGRADES,
   ZONES,
@@ -50,7 +51,7 @@ import {
   upgradeCost,
 } from './state.ts';
 import type { GameEvent, Report, State } from './state.ts';
-import { iconURL, portraitURL } from './sprites.ts';
+import { iconURL, portraitURL, profPortraitURL } from './sprites.ts';
 
 type Tab = 'home' | 'explore' | 'shelf' | 'crew';
 
@@ -369,7 +370,7 @@ function memberChip(id: string, now: number): string {
   const tired = isTired(S, id, now);
   const on = sel.members.includes(id);
   const ok = !away && !tired;
-  const note = away ? '탐사 중' : tired ? '지쳐 있음' : `힘 ${d.power}`;
+  const note = away ? '탐사 중' : tired ? '부상' : id === 'me' ? '점장' : `전투 ${d.stats.str}`;
   return `<button class="chip ${on ? 'on' : ''}" data-act="member" data-id="${id}" ${ok ? '' : 'disabled'}>
     ${pt(id, 'pt sm')}<b>${d.name}</b><small>${note}</small></button>`;
 }
@@ -377,7 +378,7 @@ function memberChip(id: string, now: number): string {
 function exploreHtml(): string {
   const now = Date.now();
   const found = foundCount(S);
-  let h = `<p class="lead">탐사대는 1~3명. 같이 가면 전리품이 늘고, 위험한 곳일수록 힘이 센 사람이 필요해요.</p>`;
+  let h = `<p class="lead">탐사대는 1~3명. 같이 가면 전리품이 늘어요. 들키면 <b>죽는 사람이 나올 수 있고, 죽은 사람은 돌아오지 않아요.</b> 전투가 센 사람과 의료가 높은 사람이 함께 가면 덜 위험해요.</p>`;
   for (const z of ZONES) {
     const open = isZoneOpen(S, z);
     const cur = sel.zone === z.id;
@@ -392,11 +393,17 @@ function exploreHtml(): string {
       const crew = ['me', ...S.crew];
       const pv = sel.members.length ? previewExpedition(S, z.id, sel.members) : null;
       const riskPct = pv ? Math.round(pv.risk * 100) : 0;
+      const deathPct = pv ? Math.round(pv.anyDeath * 100) : 0;
+      const deathList = pv
+        ? sel.members.filter((m) => pv.deathIf[m] > 0).map((m) => `${SURV_BY_ID[m].name} ${Math.round(pv.deathIf[m] * 100)}%`).join(' · ')
+        : '';
       h += `<div class="team"><div class="chips">${crew.map((id) => memberChip(id, now)).join('')}</div>
         ${
           pv
             ? `<div class="pv"><span>⏱ ${timeText(pv.ms)}</span><span>🎒 전리품 ${pv.loot}개</span>
-               <span class="${riskPct > 25 ? 'bad' : riskPct > 0 ? 'warn' : 'ok'}">⚠ 들킬 확률 ${riskPct}%</span></div>`
+               <span class="${riskPct > 25 ? 'bad' : riskPct > 0 ? 'warn' : 'ok'}">⚠ 들킬 확률 ${riskPct}%</span>
+               <span class="${deathPct >= 10 ? 'bad' : deathPct > 0 ? 'warn' : 'ok'}">☠ 누군가 죽을 확률 ${deathPct}%</span></div>
+               ${deathList ? `<p class="dim sm">들키면 죽을 확률: ${deathList}</p>` : ''}`
             : '<div class="pv dim">함께 갈 사람을 골라 주세요.</div>'
         }
         <button class="btn primary wide" data-act="go" ${pv ? '' : 'disabled'}>출발하기</button></div>`;
@@ -453,9 +460,18 @@ function crewHtml(): string {
   };
   h += row('me');
   for (const id of S.crew) h += row(id);
-  for (const d of SURVIVORS) {
-    if (S.crew.includes(d.id) || S.visitor === d.id) continue;
-    h += `<div class="card crew lockd">${pt(d.id, 'pt', true)}<span class="ct"><b>???</b><small>${d.hint}</small></span></div>`;
+  const here = new Set([...S.crew, ...(S.visitor ? [S.visitor] : [])].map((id) => S.people[id]?.prof));
+  for (const d of PROFS) {
+    if (here.has(d.id)) continue;
+    h += `<div class="card crew lockd"><img class="pt" src="${profPortraitURL(d.id)}" alt=""><span class="ct"><b>???</b><small>${d.hint}</small></span></div>`;
+  }
+  if (S.dead.length) {
+    h += `<section class="card grave"><h3>🪦 추모비 <b class="big">${S.dead.length}</b></h3><ul class="graves">`;
+    for (const g of [...S.dead].reverse()) {
+      const d = SURV_BY_ID[g.id];
+      h += `<li>${pt(g.id, 'pt xs', true)}<span><b>${d.name}</b> <small>${d.title} · ${g.day}일째 · ${ZONE_BY_ID[g.zone].name}</small><i>${g.last}</i></span></li>`;
+    }
+    h += `</ul></section>`;
   }
   return h;
 }
@@ -528,8 +544,12 @@ function reportHtml(r: Report): string {
       return `<li class="r-${d.rarity}" style="animation-delay:${0.25 + i * 0.22}s"><img src="${iconURL(it.id)}" alt=""><span>${d.name}</span><em>${RARITY[d.rarity].name}</em>${it.isNew ? '<b class="new">NEW</b>' : ''}</li>`;
     })
     .join('');
-  return `<h2>${r.caught ? '😱 간신히 도망쳐 왔다' : '🎒 탐사대 귀환!'}</h2>
+  const lost = r.deaths
+    .map((d) => `<div class="lost">${pt(d.id, 'pt sm', true)}<span><b>${d.name}</b> <small>${d.title}</small><i>${d.last}</i></span></div>`)
+    .join('');
+  return `<h2>${r.deaths.length ? '🕯 돌아오지 못한 사람이 있다' : r.caught ? '😱 간신히 도망쳐 왔다' : '🎒 탐사대 귀환!'}</h2>
     <p class="story">${z.icon} ${z.name} — ${r.line}</p>
+    ${lost}
     <ul class="loot">${list}</ul>
     <p class="gain">● +${fmt(r.caps)}${r.bonusCaps ? ` <small>(+${fmt(r.bonusCaps)} ${r.firstClear ? '첫 탐사·' : ''}새 발견 보너스)</small>` : ''}</p>
     <button class="btn primary wide" data-act="close">선반에 올리기</button>`;
@@ -539,7 +559,7 @@ function itemModal(id: string): void {
   const d = ITEM_BY_ID[id];
   const fnd = !!S.found[id];
   const n = S.items[id] ?? 0;
-  const lovers = SURVIVORS.filter((s) => S.crew.includes(s.id) && s.likes.items.includes(id)).map((s) => s.name);
+  const lovers = S.crew.map((c) => SURV_BY_ID[c]).filter((s) => s && s.likes.items.includes(id)).map((s) => s.name);
   const where = ZONES.filter((z) => z.cats[d.cat]).map((z) => z.icon + z.name);
   const body = fnd
     ? `<p class="story">${d.desc}</p>
@@ -565,7 +585,8 @@ function survModal(id: string): void {
   const isMe = id === 'me';
   let h = `<div class="vis">${pt(id, 'pt lg')}</div><h2>${d.name} <small>${d.title}</small></h2>`;
   if (!isMe) {
-    h += `<p class="buffline">✨ ${d.buff.text}${buffScale(S, id) > 1 ? ' <b>(3장 완료: ×1.5)</b>' : ''}</p>
+    h += `<p class="statline">${(Object.keys(STAT_NAME) as (keyof typeof STAT_NAME)[]).map((k) => `<span>${STAT_NAME[k]} <b>${d.stats[k]}</b></span>`).join('')}</p>
+      <p class="buffline">✨ ${d.buff.text}${buffScale(S, id) > 1 ? ' <b>(3장 완료: ×1.5)</b>' : ''}</p>
       <div class="aff big"><span class="bar"><i style="width:${a}%"></i>${CHAPTER_AFF.map((t) => `<u style="left:${t}%"></u>`).join('')}</span><span>호감도 ${a}/100</span></div>
       <div class="stories">`;
     d.chapters.forEach((text, i) => {

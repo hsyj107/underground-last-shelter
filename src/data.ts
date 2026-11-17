@@ -138,6 +138,7 @@ export const ZONES: ZoneDef[] = [
 
 export const ZONE_BY_ID: Record<string, ZoneDef> = Object.fromEntries(ZONES.map((z) => [z.id, z]));
 
+
 // ---------- 생존자 ----------
 
 export type BuffKind = 'store_cat' | 'store_all' | 'exp_guard' | 'exp_luck' | 'exp_loot';
@@ -163,6 +164,7 @@ export type Unlock =
   | { type: 'item'; id: string }
   | { type: 'crew'; n: number };
 
+/** 화면과 규칙이 읽는 생존자 한 명의 모습 (직업 + 개인 정보를 합친 것) */
 export interface SurvDef {
   id: string;
   name: string;
@@ -177,9 +179,47 @@ export interface SurvDef {
   intro: string;
   chapters: [string, string, string];
   chat: string[];
+  prof: string;
+  stats: Stats;
 }
 
 export const CHAPTER_AFF = [20, 50, 100];
+
+/** 능력치: 전투(싸움·버티기), 수색(물건 찾기), 의료(치료) — 1~10 */
+export interface Stats {
+  str: number;
+  agi: number;
+  med: number;
+}
+export const STAT_NAME: Record<keyof Stats, string> = { str: '전투', agi: '수색', med: '의료' };
+
+/** 저장되는 개인 정보. 직업(prof)에서 나머지가 정해진다 */
+export interface Person {
+  id: string;
+  prof: string;
+  name: string;
+  look: Look;
+  stats: Stats;
+}
+
+export interface ProfDef {
+  id: string;
+  title: string;
+  look: Look;
+  hairs?: string[];
+  styles?: Look['style'][];
+  /** 직업의 핵심 능력치는 최소치가 보장된다 */
+  range: Record<keyof Stats, [number, number]>;
+  names: 'person' | 'cat' | 'kid' | 'old';
+  buff: SurvDef['buff'];
+  likes: SurvDef['likes'];
+  unlock: Unlock;
+  hint: string;
+  intro: string;
+  chapters: [string, string, string];
+  chat: string[];
+  lastWords: string[];
+}
 
 export const PLAYER: SurvDef = {
   id: 'me',
@@ -194,98 +234,127 @@ export const PLAYER: SurvDef = {
   intro: '',
   chapters: ['', '', ''],
   chat: ['오늘도 셔터를 올린다.', '선반이 비어 있으면 마음도 비는 법.', '손님이 와야 장사가 되는데…'],
+  prof: 'me',
+  stats: { str: 3, agi: 3, med: 3 },
 };
 
-export const SURVIVORS: SurvDef[] = [
+export const SKINS = ['#f4d4b0', '#f0c8a0', '#e8c098', '#e0b088', '#d0a078'];
+export const DARK_HAIRS = ['#2a2a3a', '#3a2a22', '#4a3022', '#4a2a1a', '#1e1e26'];
+
+export const SURNAMES = ['김', '이', '박', '최', '정', '강', '조', '윤', '장', '임', '한', '오', '서', '신', '권', '황', '안', '송', '류', '홍'];
+export const GIVEN = ['지우', '서진', '도연', '지안', '은우', '하람', '시현', '해든', '지오', '라온', '아람', '다온', '이안', '세인', '도하', '한결', '보람', '해솔', '유건', '나윤', '시안', '로아', '예온', '소담'];
+export const OLD_GIVEN = ['만복', '덕팔', '순길', '영철', '봉수', '옥순', '말순', '기태'];
+export const KID_NAMES = ['두리', '콩이', '보리', '하늘', '단비', '초롱', '별이', '새롬'];
+export const CAT_NAMES = ['나비', '치즈', '고등어', '먼지', '두부', '모찌', '삼색이', '까망이'];
+
+export const PROFS: ProfDef[] = [
   {
-    id: 'songi', name: '한송이', title: '전직 해장국집 사장',
+    id: 'cook', title: '전직 해장국집 사장',
     look: { skin: '#f0c8a0', hair: '#4a3022', style: 'bun', top: '#d8d0c0', top2: '#f4efe4', pants: '#4a5a6a', shoes: '#5a4a3a', acc: ['chefhat', 'apron'] },
+    styles: ['bun', 'short'],
+    range: { str: [2, 5], agi: [3, 6], med: [1, 4] }, names: 'person',
     buff: { kind: 'store_cat', cat: 'food', value: 0.4, text: '매장에 있으면 식료품 수입 +40%' },
-    power: 1, likes: { items: ['f_ramen', 'f_coffee'], cat: 'food' },
+    likes: { items: ['f_ramen', 'f_coffee'], cat: 'food' },
     unlock: { type: 'start' }, hint: '곧 누군가 문을 두드린다.',
     intro: '"문 좀 열어주세요… 혹시 컵라면 냄새 안 나요? 주방, 아니, 그 구석 좀 써도 될까요?"',
     chapters: [
-      '송이네 해장국은 24시간 불이 꺼지지 않던 가게였다. 사태가 터진 날에도 손님 열두 명에게 국밥을 말아줬다고 한다. "다 먹고 나서야 도망갔어요. 배는 안 곯아야죠."',
+      '24시간 불이 꺼지지 않던 해장국집이었다. 사태가 터진 날에도 손님 열두 명에게 국밥을 말아줬다고 한다. "다 먹고 나서야 도망갔어요. 배는 안 곯아야죠."',
       '간판은 못 가져왔지만 낡은 국자 하나는 품에 있었다. 선반의 컵라면으로 끓여 준 라면을 한참 말없이 먹더니 중얼거렸다. "…면이 좀 불었는데, 이상하게 제일 맛있네요."',
-      '계산대 옆에 작은 취사 코너가 생겼다. 삐뚤빼뚤 쓴 간판은 \'송이네 야식\'. "손님 한 명이라도 오면 열 거예요. 아무도 안 와도 열 거고요."',
+      '계산대 옆에 작은 취사 코너가 생겼다. 삐뚤빼뚤 쓴 간판은 \'{n}네 야식\'. "손님 한 명이라도 오면 열 거예요. 아무도 안 와도 열 거고요."',
     ],
     chat: ['간은 제일 마지막에 보는 거예요.', '오늘 국물은 내가 봐도 잘 나왔네.', '냄새가 나면 사람이 모여요. 그게 제일 좋은 간판이죠.'],
+    lastWords: ['"국이 식기 전에 돌아가고 싶었는데."', '"간은… 제일 마지막에 보는 거라고 했잖아요."', '"배는 안 곯아야죠. 다들."'],
   },
   {
-    id: 'hajun', name: '서하준', title: '밤샘 코딩하던 개발자',
+    id: 'dev', title: '밤샘 코딩하던 개발자',
     look: { skin: '#f4d4b0', hair: '#2a2a3a', style: 'short', top: '#4a4a5a', top2: '#3a3a48', pants: '#2f3a4a', shoes: '#e8e8e8', acc: ['hood', 'glasses'] },
+    range: { str: [1, 3], agi: [5, 9], med: [1, 3] }, names: 'person',
     buff: { kind: 'store_cat', cat: 'tech', value: 0.4, text: '매장에 있으면 전자기기 수입 +40%' },
-    power: 1, likes: { items: ['t_game', 't_laptop'], cat: 'tech' },
+    likes: { items: ['t_game', 't_laptop'], cat: 'tech' },
     unlock: { type: 'found', n: 6 }, hint: '도감을 6종 채우면 찾아온다.',
     intro: '"저, 저기… 와이파이 있어요? 아, 없구나. 그럼 일단 들어가도 돼요? 아니 들어가겠습니다."',
     chapters: [
       '사태 전날 밤샘 코딩 중이었다. 눈을 떠 보니 세상이 끝나 있었다는 게 본인 설명. "근데 서버는 안 죽었어요. 아직 어딘가에서 돌고 있을걸요."',
       '낡은 계산대를 분해해서 재고 관리 단말기를 만들었다. 선반 물건이 이제 화면에 뜬다. "재고 관리는 제 일이죠. 이것만큼은 자신 있어요."',
-      '하준이 새벽마다 무전기로 같은 말을 보낸다. "여기 B7, 불 켜져 있어요." 가끔 지직거리는 잡음 사이로 누군가 대답한다.',
+      '새벽마다 무전기로 같은 말을 보낸다. "여기 B7, 불 켜져 있어요." 가끔 지직거리는 잡음 사이로 누군가 대답한다.',
     ],
     chat: ['이거 재부팅하면 다시 켜질까요… 아 이건 계산대구나.', '사람이 서버보다 오래 버티네요.', '로그를 보면 이 가게, 생각보다 잘 돌아가고 있어요.'],
+    lastWords: ['"로그는 남겨 뒀어요. 누가 읽겠지."', '"재부팅하면 다시 켜질 줄 알았는데."', '"서버는 안 죽었어요. 아직… 돌고 있을 거예요."'],
   },
   {
-    id: 'chulmin', name: '오철민', title: '은퇴한 특수부대 원사',
+    id: 'soldier', title: '은퇴한 특수부대 원사',
     look: { skin: '#e0b088', hair: '#5a5a5a', style: 'short', top: '#5a6a3a', top2: '#4a5a2a', pants: '#4a5a2a', shoes: '#2a2a22', acc: ['beret', 'scar', 'camo'] },
+    hairs: ['#5a5a5a', '#3a3a3a', '#8a8a8a'],
+    range: { str: [8, 10], agi: [3, 6], med: [2, 5] }, names: 'person',
     buff: { kind: 'exp_guard', value: 0.6, text: '탐사대에 있으면 들킬 확률 -60%, 전리품 +1' },
-    power: 3, likes: { items: ['f_choco', 't_light'], cat: 'daily' },
+    likes: { items: ['f_choco', 't_light'], cat: 'daily' },
     unlock: { type: 'exp', n: 3 }, hint: '탐사를 3번 다녀오면 찾아온다.',
     intro: '"경계 이상 무. 들어가도 되겠나? 문 앞의 좀비 셋은 조용히 처리했다."',
     chapters: [
-      '오 원사는 전역 후 동네 경비 일을 하던 중이었다. "평생 지키는 일만 했는데, 지킬 게 없어졌더군." 하지만 매일 밤 편의점 문단속은 그가 한다.',
+      '전역 후 동네 경비 일을 하던 중이었다. "평생 지키는 일만 했는데, 지킬 게 없어졌더군." 하지만 매일 밤 편의점 문단속은 그가 한다.',
       '몰래 숨겨 둔 곰 젤리가 들통났다. 얼굴이 빨개진 채 말한다. "…전투식량엔 이런 게 없어서."',
       '신입에게 이것저것 가르치는 걸 은근히 좋아한다. "원칙 하나. 안 죽는다. 원칙 둘. 같이 돌아온다." 탐사대의 구호가 되었다.',
     ],
     chat: ['경계 이상 무.', '신발끈부터 다시 묶고 가라.', '문단속은 제일 중요한 일이다. 제일.'],
+    lastWords: ['"원칙 하나. 안 죽는다. …미안하다."', '"문단속은 부탁한다."', '"경계 이상… 없다."'],
   },
   {
-    id: 'nabi', name: '나비', title: '길고양이 · 계산대 위의 주인',
+    id: 'cat', title: '길고양이 · 계산대 위의 주인',
     look: { skin: '#e8944a', hair: '#c86a2a', style: 'short', top: '#e8944a', top2: '#c86a2a', pants: '#e8944a', shoes: '#e8944a', acc: [], cat: true },
+    range: { str: [1, 2], agi: [6, 9], med: [1, 1] }, names: 'cat',
     buff: { kind: 'exp_luck', value: 0.8, text: '탐사대에 있으면 희귀·전설 발견 확률 +80%' },
-    power: 1, likes: { items: ['p_churu', 'p_food'], cat: 'pet' },
+    likes: { items: ['p_churu', 'p_food'], cat: 'pet' },
     unlock: { type: 'item', id: 'p_food' }, hint: '고양이 사료를 발견하면 냄새를 맡고 온다.',
     intro: '(냐아) 고양이 사료 냄새를 맡고 문 앞에 앉아 있다. 목에는 낡은 방울이 달려 있다.',
     chapters: [
-      '나비는 매일 같은 시각에 계산대 위로 올라앉는다. 아무도 시킨 적 없지만 거기가 나비의 출근 자리다.',
-      '나비가 가는 곳엔 이상하게 물건이 남아 있다. 몰래 탐사 가방에 들어가 따라간 날, 평소보다 두 배나 많이 가져왔다.',
-      '방울 안쪽에 작은 글씨가 새겨져 있다. \'집 잃으면 연락주세요.\' 이제 그 번호를 받을 사람은 없지만, 나비는 집을 잃지 않았다.',
+      '매일 같은 시각에 계산대 위로 올라앉는다. 아무도 시킨 적 없지만 거기가 출근 자리다.',
+      '이 고양이가 가는 곳엔 이상하게 물건이 남아 있다. 몰래 탐사 가방에 들어가 따라간 날, 평소보다 두 배나 많이 가져왔다.',
+      '방울 안쪽에 작은 글씨가 새겨져 있다. \'집 잃으면 연락주세요.\' 이제 그 번호를 받을 사람은 없지만, 집은 잃지 않았다.',
     ],
     chat: ['냐아.', '(골골골)', '(계산대 위에서 느긋하게 기지개를 켠다)'],
+    lastWords: ['(…냐아.)', '(방울 소리가 멀어진다.)', '(계산대 위는 끝내 비어 있다.)'],
   },
   {
-    id: 'yuna', name: '정유나', title: '종합병원 야간 간호사',
+    id: 'nurse', title: '종합병원 야간 간호사',
     look: { skin: '#f4d4b0', hair: '#3a2a2a', style: 'long', top: '#78b8c8', top2: '#5898a8', pants: '#78b8c8', shoes: '#f4efe4', acc: ['nursecap'] },
+    styles: ['long', 'bun'],
+    range: { str: [1, 4], agi: [2, 5], med: [7, 10] }, names: 'person',
     buff: { kind: 'store_cat', cat: 'medical', value: 0.4, text: '매장에 있으면 의약품 수입 +40%' },
-    power: 1, likes: { items: ['m_vita', 'f_coffee'], cat: 'medical' },
+    likes: { items: ['m_vita', 'f_coffee'], cat: 'medical' },
     unlock: { type: 'cat', cat: 'medical', n: 3 }, hint: '의약품을 3종 발견하면 찾아온다.',
     intro: '"다친 사람 있어요? 아니면 제가 먼저 다쳤을지도. 하하, 농담이에요. 들어가도 될까요?"',
     chapters: [
-      '야간 근무 중이던 유나는 병동의 환자들을 끝까지 옥상으로 대피시켰다. 마지막 한 명까지. 그 이야기는 거기까지만 한다.',
+      '야간 근무 중이던 병동의 환자들을 끝까지 옥상으로 대피시켰다. 마지막 한 명까지. 그 이야기는 거기까지만 한다.',
       '구급상자를 정리하다 말했다. "연고에도 유통기한이 있는데, 마음 달래는 건 유통기한이 없대요." 그리고 점장의 손에 밴드를 붙였다.',
       '편의점 구석에 \'간이 진료소\' 팻말이 생겼다. 환자가 한 명도 안 오는 날이 제일 좋은 날이라고 한다.',
     ],
     chat: ['밥은 먹었어요? 약보다 밥이 먼저예요.', '손 씻었죠? 씻었다고 해 줘요.', '오늘은 다치지 말기로 해요, 우리.'],
+    lastWords: ['"밥은 먹어요. 약보다 밥이 먼저예요."', '"다친 사람 없어서… 다행이에요."', '"연고는 서랍 둘째 칸에 있어요."'],
   },
   {
-    id: 'manbok', name: '박만복', title: '40년차 만화방 주인',
+    id: 'comic', title: '40년차 만화방 주인',
     look: { skin: '#e8c098', hair: '#e8e8e8', style: 'short', top: '#8a6a4a', top2: '#7a5a3a', pants: '#4a4a4a', shoes: '#3a2a22', acc: ['beard', 'cane'] },
+    hairs: ['#e8e8e8', '#d0d0d0'],
+    range: { str: [1, 3], agi: [2, 5], med: [1, 3] }, names: 'old',
     buff: { kind: 'store_cat', cat: 'culture', value: 0.4, text: '매장에 있으면 문화 수입 +40%' },
-    power: 1, likes: { items: ['c_vol4', 'c_comic'], cat: 'culture' },
+    likes: { items: ['c_vol4', 'c_comic'], cat: 'culture' },
     unlock: { type: 'cat', cat: 'culture', n: 3 }, hint: '문화 물건을 3종 발견하면 찾아온다.',
     intro: '"어허, 문 열어라 이놈들아. …아니, 문 좀 열어 주시오. 내 만화 전집이 여기 있다고 들었소."',
     chapters: [
       '40년간 만화방을 지켰다. 사태가 터지던 날에도 "마지막 권 보고 가야지" 하며 앉아 있었다고 한다.',
       '선반의 낡은 만화책을 보고 눈이 반짝였다. "이건 한 권이 빠졌구먼. 4권이 없어. 에잉." 그날부터 4권 찾는 게 소원이 되었다.',
-      '4권을 마침내 읽었다. 할아버지는 한참을 조용히 책장을 넘기다 말했다. "결말이 이랬구먼. 살아서 봤으니 됐다."',
+      '4권을 마침내 읽었다. 한참을 조용히 책장을 넘기다 말했다. "결말이 이랬구먼. 살아서 봤으니 됐다."',
     ],
     chat: ['요즘 애들은 만화를 안 봐서 탈이야.', '이 책은 3권이 제일 재밌소. 4권이 없어서 더.', '자, 한 권 보고 가시오. 공짜요.'],
+    lastWords: ['"4권을 못 봤구먼. 에잉."', '"한 권 보고 가시오. 공짜요."', '"살 만큼 살았소. 이놈들아 밥 챙겨 먹어라."'],
   },
   {
-    id: 'saebyeok', name: '강새벽', title: '심야 라디오 DJ',
+    id: 'dj', title: '심야 라디오 DJ',
     look: { skin: '#e8c098', hair: '#6a3a8a', style: 'long', top: '#3a3a5a', top2: '#e84a8a', pants: '#2a2a3a', shoes: '#e84a8a', acc: ['headphones'] },
+    hairs: ['#6a3a8a', '#e84a8a', '#2a6a8a'],
+    range: { str: [1, 3], agi: [3, 6], med: [1, 3] }, names: 'person',
     buff: { kind: 'store_all', value: 0.1, text: '매장에 있으면 전체 수입 +10%' },
-    power: 1, likes: { items: ['t_radio', 'c_lp', 'c_tape'], cat: 'culture' },
+    likes: { items: ['t_radio', 'c_lp', 'c_tape'], cat: 'culture' },
     unlock: { type: 'item', id: 't_radio' }, hint: '작동하는 라디오를 발견하면 찾아온다.',
     intro: '"안녕하세요 B7 청취자 여러분— 아, 청취자가 아직 없구나. 방송 장비부터 찾아야겠어요!"',
     chapters: [
@@ -294,24 +363,59 @@ export const SURVIVORS: SurvDef[] = [
       '매일 밤 12시 \'종말 편의점 심야방송\'이 시작된다. 오프닝 멘트는 늘 같다. "오늘도 살아남은 당신, 수고했어요."',
     ],
     chat: ['오늘의 신청곡은 점장님 거예요.', '마이크 체크, 원 투. 청취자 한 분 계시죠?', '새벽엔 모든 노래가 더 좋게 들려요.'],
+    lastWords: ['"오늘도 살아남은 당신, 수고했어요. 이건 마지막 멘트."', '"마이크 체크… 원 투…"', '"청취자 한 분, 계셨죠?"'],
   },
   {
-    id: 'duri', name: '두리', title: '구슬과 병뚜껑을 모으는 아홉 살',
+    id: 'kid', title: '구슬과 병뚜껑을 모으는 아홉 살',
     look: { skin: '#f4d4b0', hair: '#4a2a1a', style: 'tuft', top: '#e8c040', top2: '#d8a830', pants: '#4a78b8', shoes: '#e84a4a', acc: [], kid: true },
+    range: { str: [1, 2], agi: [5, 8], med: [1, 1] }, names: 'kid',
     buff: { kind: 'exp_loot', value: 1, text: '탐사대에 있으면 전리품 +1, 처음 발견한 물건의 뚜껑 보너스 2배' },
-    power: 1, likes: { items: ['f_choco', 'p_toy', 'f_snack'], cat: 'food' },
+    likes: { items: ['f_choco', 'p_toy', 'f_snack'], cat: 'food' },
     unlock: { type: 'crew', n: 4 }, hint: '생존자가 4명 모이면 누군가 따라온다.',
     intro: '"아저씨! 과자 있어요? 저 주머니에 뚜껑 모아 놨어요. 다섯 개나요!"',
     chapters: [
-      '두리는 반짝이는 걸 잘 찾는다. 병뚜껑, 구슬, 가끔은 잃어버린 열쇠. 어른들은 못 보는 구석을 아이는 본다.',
-      '두리의 배낭 속엔 사진이 한 장 있다. 아무도 묻지 않았지만 다들 안다. 다음 날부터 어른들은 두리 몫으로 간식을 한 개씩 더 챙긴다.',
-      '"나 커서 점장 할래요!" "벌써 점장은 여기 있는데?" "그럼 부점장!" 두리는 오늘도 선반을 정리한다. 가끔은 거꾸로.',
+      '반짝이는 걸 잘 찾는다. 병뚜껑, 구슬, 가끔은 잃어버린 열쇠. 어른들은 못 보는 구석을 아이는 본다.',
+      '배낭 속엔 사진이 한 장 있다. 아무도 묻지 않았지만 다들 안다. 다음 날부터 어른들은 아이 몫으로 간식을 한 개씩 더 챙긴다.',
+      '"나 커서 점장 할래요!" "벌써 점장은 여기 있는데?" "그럼 부점장!" 아이는 오늘도 선반을 정리한다. 가끔은 거꾸로.',
     ],
     chat: ['이거 보세요! 별 모양 뚜껑!', '나 오늘 선반 열 개나 닦았어요!', '밤에 무서우면 고양이랑 자면 돼요.'],
+    lastWords: ['"아저씨, 뚜껑 내 주머니에 있어요. 가져요."', '"무서우면 고양이랑 자면 된댔는데…"', '"나 커서… 부점장 할 건데."'],
   },
 ];
 
-export const SURV_BY_ID: Record<string, SurvDef> = Object.fromEntries([PLAYER, ...SURVIVORS].map((s) => [s.id, s]));
+export const PROF_BY_ID: Record<string, ProfDef> = Object.fromEntries(PROFS.map((p) => [p.id, p]));
+
+/** 생존자 한 명을 화면·규칙이 읽는 형태로 합친다 */
+export function makeDef(p: Person): SurvDef {
+  const pr = PROF_BY_ID[p.prof];
+  const fill = (t: string): string => t.split('{n}').join(p.name);
+  return {
+    id: p.id,
+    name: p.name,
+    title: pr.title,
+    look: p.look,
+    buff: pr.buff,
+    power: 1 + Math.floor((p.stats.str - 1) / 3.5),
+    likes: pr.likes,
+    unlock: pr.unlock,
+    hint: pr.hint,
+    intro: fill(pr.intro),
+    chapters: pr.chapters.map(fill) as [string, string, string],
+    chat: pr.chat,
+    prof: p.prof,
+    stats: p.stats,
+  };
+}
+
+/** 현재 게임에 존재하는 모든 사람(점장 포함, 사망자 포함). 상태를 불러오거나 새 사람이 생기면 채운다. */
+export const SURV_BY_ID: Record<string, SurvDef> = { me: PLAYER };
+export function registerPerson(p: Person): void {
+  SURV_BY_ID[p.id] = makeDef(p);
+}
+export function resetRegistry(): void {
+  for (const k of Object.keys(SURV_BY_ID)) if (k !== 'me') delete SURV_BY_ID[k];
+}
+
 
 // ---------- 개조 ----------
 
