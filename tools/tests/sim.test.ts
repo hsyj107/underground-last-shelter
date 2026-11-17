@@ -1,9 +1,14 @@
 import { AREAS, makeNormal } from '../../src/sim/data';
 import { MAX_CATCHUP_DAYS, msToNextDay, tick } from '../../src/sim/clock';
 import {
-  assign, atBunker, byId, endDay, evaluateTitle, facilityState, forecast, newGame, resolveSerum, setException,
+  assign, atBunker, byId, endDay, evaluateTitle, facilityState, forecast, newGame, resolveDecision, resolveSerum, setException,
   setMemorial, setPolicy, startExpedition, unlockFacility, upgradeFacility, workersOf,
 } from '../../src/sim/engine';
+import { eventView, rollStory } from '../../src/sim/story';
+import { activeThoughts, adjustBond, bondLabel, bondOf, killSurvivor, mentalBreaks } from '../../src/sim/mind';
+import { bodyFactor, injure } from '../../src/sim/body';
+import { autoAssign, craftProsthetic, setAuto, setPrio } from '../../src/sim/engine';
+import { makeSay } from '../../src/sim/core';
 import type { Game } from '../../src/sim/types';
 
 let failed = 0;
@@ -17,7 +22,26 @@ const seq = (...values: number[]) => {
   let i = 0;
   return () => values[Math.min(i++, values.length - 1)];
 };
-const fresh = (rng = () => 0.5): Game => newGame({ nickname: '테스트', background: 'x', command: 5, logistics: 5, analysis: 5 }, rng);
+/** 기본은 이야기꾼 사건을 꺼 둔다 (사건을 시험하는 곳에서만 story.next 를 되돌린다) */
+const fresh = (rng = () => 0.5): Game => {
+  const g = newGame({ nickname: '테스트', background: 'x', command: 5, logistics: 5, analysis: 5 }, rng);
+  g.story.next = 9999;
+  return g;
+};
+
+/** 멈춰 있는 결정이 있으면 가장 먼저 고를 수 있는 선택으로 풀어 준다 */
+const clearPending = (g: Game): void => {
+  const p = g.pending;
+  if (!p) return;
+  if (p.kind === 'serum') {
+    resolveSerum(g, null);
+    return;
+  }
+  const v = eventView(g);
+  const c = v?.choices.find((x) => !x.disabled) ?? v?.choices[v.choices.length - 1];
+  if (c) resolveDecision(g, c.id, () => 0.5);
+  else g.pending = null;
+};
 
 // 새 게임
 {
@@ -77,7 +101,7 @@ const fresh = (rng = () => 0.5): Game => newGame({ nickname: '테스트', backgr
 {
   const g = fresh();
   g.stock.food = 0; g.stock.water = 0;
-  for (const s of g.survivors) s.post = null; // 생산 중단
+  for (const s of g.survivors) { s.post = null; s.auto = false; } // 생산 중단
   for (let i = 0; i < 20 && g.collapses === 0; i++) endDay(g, () => 0.9);
   ok(g.collapses === 1, 'starvation collapses the settlement');
   ok(g.obituaries.length === 4, 'all four recorded ' + g.obituaries.length);
@@ -184,7 +208,10 @@ const fresh = (rng = () => 0.5): Game => newGame({ nickname: '테스트', backgr
 // 폭동 → 붕괴 → 재건
 {
   const g = fresh();
-  for (const s of g.survivors) { s.stress = 95; s.loyalty = 5; }
+  for (const s of g.survivors) {
+    s.stress = 95; s.loyalty = 5;
+    s.thoughts.push({ id: 'x', text: '시험용 극심한 악재', value: -150, until: 9999 });
+  }
   endDay(g, () => 0.99);
   ok(g.collapses === 1 && g.survivors.length === 3, 'riot collapses and rebuilds');
   ok(g.obituaries.some((o) => o.cause.includes('폭동')), 'leavers recorded');
@@ -217,6 +244,7 @@ const fresh = (rng = () => 0.5): Game => newGame({ nickname: '테스트', backgr
 {
   const T0 = 1_000_000;
   const g = newGame({ nickname: 't', background: 'x', command: 5, logistics: 5, analysis: 5 }, () => 0.5, T0, 1000);
+  g.story.next = 9999;
   let r = tick(g, T0 + 500, () => 0.5);
   ok(r.days === 0 && g.day === 1, 'less than a day: nothing');
   r = tick(g, T0 + 1500, () => 0.5);
@@ -231,6 +259,7 @@ const fresh = (rng = () => 0.5): Game => newGame({ nickname: '테스트', backgr
 {
   const T0 = 5_000_000;
   const g = newGame({ nickname: 't', background: 'x', command: 5, logistics: 5, analysis: 5 }, () => 0.5, T0, 1000);
+  g.story.next = 9999;
   g.pending = { kind: 'serum', aceId: g.survivors[0].id };
   const r = tick(g, T0 + 10 * 1000, () => 0.5);
   ok(r.days === 0 && g.day === 1, 'clock paused while a decision is pending');
@@ -243,7 +272,8 @@ const fresh = (rng = () => 0.5): Game => newGame({ nickname: '테스트', backgr
 {
   const g = fresh(Math.random);
   let n = 0;
-  while (n < 800) { if (g.pending) resolveSerum(g, null); endDay(g, Math.random); n++; }
+  g.story.next = 4;
+  while (n < 800) { clearPending(g); endDay(g, Math.random); n++; }
   ok(g.day > 1, 'long run completes without throwing, ended day ' + g.day);
   console.log('idle run: day', g.day, 'collapses', g.collapses, 'deaths', g.obituaries.length, 'title', g.title);
 }
@@ -265,6 +295,125 @@ const fresh = (rng = () => 0.5): Game => newGame({ nickname: '테스트', backgr
   ok(engHigh / engN > 0.5, 'engineers average higher skill than laborers ' + engHigh / engN);
   ok(scoutOld === 0, 'scouts are young');
 }
+// 기분: 배급이 줄면 이유 있는 생각이 쌓이고 스트레스가 오른다
+{
+  const g = fresh();
+  g.stock.food = 0;
+  for (const x of g.survivors) { x.post = null; x.auto = false; }
+  const s = byId(g, 's1')!;
+  const before = s.stress;
+  endDay(g, () => 0.9);
+  ok(activeThoughts(g, s).some((t) => t.id === 'hunger' && t.value < 0), 'hunger thought appears');
+  ok(s.stress > before, 'stress rises toward the thought sum');
+}
+
+// 관계: 친구의 죽음은 오래 남고, 앙숙의 죽음은 오히려 홀가분하다
+{
+  const g = fresh();
+  const a = byId(g, 's1')!, b = byId(g, 's2')!, c = byId(g, 'n_han')!;
+  adjustBond(a, b, 85);
+  adjustBond(a, c, -60);
+  ok(bondLabel(bondOf(a, b)) === '절친' && bondLabel(bondOf(a, c)) === '앙숙', 'bond labels');
+  const say = makeSay(g);
+  killSurvivor(g, b, '질병', () => 0.5, say);
+  ok(activeThoughts(g, a).some((t) => t.value <= -30), 'best friend death hits hard');
+  killSurvivor(g, c, '질병', () => 0.5, say);
+  ok(activeThoughts(g, a).some((t) => t.id === `mourn_${c.id}` && t.value > 0), 'rival death is a relief');
+  ok(a.bonds[b.id] === undefined, 'bonds with the dead are purged');
+}
+
+// 정신 붕괴: 한계 스트레스면 일을 못 하게 되고 가라앉는다
+{
+  const g = fresh();
+  const s = byId(g, 's1')!;
+  s.stress = 95;
+  mentalBreaks(g, () => 0.1, makeSay(g));
+  ok(s.breakKind !== undefined && s.breakUntil !== undefined && s.stress <= 60, 'mental break triggers and relieves stress');
+  ok(!workersOf(g, 'water_purifier').includes(s) || s.post !== 'water_purifier', 'broken survivor does not work');
+}
+
+// 이야기꾼: 습격 결정 3지선다, 방랑자·상인·다툼
+{
+  const g = fresh();
+  g.day = 10;
+  g.story.next = 10;
+  g.story.recent = [];
+  const rng = (() => { let i = 0; const v = [0.01, 0.5, 0.5, 0.5, 0.5, 0.5]; return () => v[Math.min(i++, v.length - 1)]; })();
+  rollStory(g, rng, makeSay(g));
+  ok(g.pending?.kind === 'event', 'story creates a decision ' + JSON.stringify(g.pending));
+  const view = eventView(g);
+  ok(!!view && view.choices.length >= 3, 'decision has at least 3 choices');
+  const r = resolveDecision(g, view!.choices.find((c) => !c.disabled)!.id, () => 0.5);
+  ok(r.ok && g.pending === null, 'decision resolves');
+
+  const t = fresh();
+  t.pending = { kind: 'event', event: 'trader', data: {} };
+  const scrap = t.stock.scrap;
+  resolveDecision(t, 'buy_food', () => 0.5);
+  ok(t.stock.scrap === scrap - 25 && t.stock.food === 60 + 35, 'trader exchange');
+
+  const w = fresh();
+  w.pending = { kind: 'event', event: 'wanderer', data: { job: 'guard', sick: 0 } };
+  const n = w.survivors.length;
+  resolveDecision(w, 'accept', () => 0.5);
+  ok(w.survivors.length === n + 1 && w.survivors[n].job === 'guard', 'wanderer joins');
+
+  const q = fresh();
+  const [x, y] = [byId(q, 's1')!, byId(q, 's2')!];
+  adjustBond(x, y, -60);
+  q.pending = { kind: 'event', event: 'quarrel', data: { a: x.id, b: y.id } };
+  resolveDecision(q, 'side_a', () => 0.5);
+  ok(activeThoughts(q, y).some((t) => t.value < 0) && bondOf(x, y) < -60, 'quarrel side taking hurts the loser');
+}
+
+// 습격: 약한 방어선으로 항전하면 피해를 입는다
+{
+  const g = fresh();
+  g.pending = { kind: 'event', event: 'raid', data: { power: 300 } };
+  const food = g.stock.food;
+  resolveDecision(g, 'fight', () => 0.1);
+  ok(g.stock.food < food || g.survivors.some((s) => s.status === 'dead' || s.wounds.length > 0), 'losing a raid costs something');
+  const h = fresh();
+  h.pending = { kind: 'event', event: 'raid', data: { power: 20 } };
+  resolveDecision(h, 'tribute', () => 0.5);
+  ok(h.stock.food < 60 && h.pending === null, 'tribute pays');
+}
+
+// 작업 우선순위: 자동 배치와 직접 배치
+{
+  const g = fresh();
+  const s = byId(g, 's1')!;
+  ok(s.post === 'water_purifier', 'laborer starts at water purifier ' + s.post);
+  setPrio(g, 's1', 'water_purifier', 0);
+  setPrio(g, 's1', 'farm', 1);
+  ok(s.post !== 'water_purifier', 'priority 0 removes from that facility ' + s.post);
+  assign(g, 's1', 'power_plant');
+  ok(s.post === 'power_plant' && s.auto === false, 'manual assignment turns auto off');
+  autoAssign(g);
+  ok(s.post === 'power_plant', 'auto assign respects manual posts');
+  setAuto(g, 's1', true);
+  ok(s.auto === true, 'auto toggled on');
+}
+
+// 부상과 의수: 부위가 남고 능률이 떨어지며, 공방에서 의수로 만회
+{
+  const g = fresh();
+  const s = byId(g, 's1')!;
+  s.wounds.push({ part: 'arm_l', kind: 'lost' }, { part: 'leg_r', kind: 'lost' });
+  const hurt = bodyFactor(s);
+  ok(hurt < 0.7, 'lost limbs reduce efficiency ' + hurt);
+  ok(!craftProsthetic(g, 's1', 'arm_l').ok, 'prosthetic needs workshop');
+  g.facilities.workshop = 2;
+  const smith = byId(g, 'n_han')!;
+  smith.post = 'workshop'; smith.auto = false;
+  g.stock.scrap = 100; g.stock.medicine = 5;
+  ok(craftProsthetic(g, 's1', 'arm_l').ok && bodyFactor(s) > hurt, 'prosthetic improves efficiency');
+  const m = fresh();
+  const t = byId(m, 's2')!;
+  const note = injure(t, () => 0.1, m.day, true);
+  ok(!!note && t.wounds.length === 1, 'injure records a wound');
+}
+
 void AREAS;
 console.log(failed === 0 ? 'ALL SIM TESTS PASSED' : `${failed} FAILED`);
 process.exitCode = failed === 0 ? 0 : 1;

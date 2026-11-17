@@ -787,3 +787,56 @@ input[type='text']:focus {
 .pick .fig img:not(.pl) {
   filter: grayscale(1) sepia(1) saturate(2.4) hue-rotate(-8deg) brightness(0.95) contrast(1.15);
 }
+
+/* 정신 붕괴 중에는 몸을 떤다 */
+.sv.brk .fig {
+  animation: shake 0.25s linear infinite;
+}
+@keyframes shake {
+  0% { transform: translateX(-1px); }
+  50% { transform: translateX(1px); }
+  100% { transform: translateX(-1px); }
+}
+
+/* 작업 우선순위표 */
+.gridwrap {
+  overflow-x: auto;
+}
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.grid th {
+  padding: 3px 2px;
+  color: var(--dim);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.grid td {
+  padding: 2px;
+  text-align: center;
+  border-top: 1px solid var(--line);
+}
+.grid .gn {
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  padding-right: 6px;
+}
+.pc {
+  min-width: 30px;
+  padding: 3px 2px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--dim);
+  background: transparent;
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.pc.p1 { color: var(--good); border-color: var(--good); }
+.pc.p2 { color: var(--fg); }
+.pc.p4 { color: var(--dim); opacity: 0.7; }
+.pc.p0 { opacity: 0.4; }
+.pc.at { background: rgba(255, 190, 70, 0.25); border-color: var(--fg); color: var(--fg); }
+.pc.on { color: #1a1204; background: var(--fg); border-color: var(--fg); text-shadow: none; }

@@ -15,6 +15,26 @@ export type Exception = 'special' | 'withhold' | null;
 
 export type SurvStatus = 'ok' | 'sick' | 'injured' | 'critical' | 'away' | 'dead';
 
+/** 기분에 영향을 주는 생각. value > 0 이면 좋은 일, < 0 이면 나쁜 일. until 일까지 유지된다 */
+export interface Thought {
+  id: string;
+  text: string;
+  value: number;
+  until: number;
+  /** 그날의 상황에서 매일 새로 만들어지는 생각 (조건이 사라지면 바로 없어진다) */
+  sit?: boolean;
+}
+
+export type BodyPart = 'head' | 'torso' | 'arm_l' | 'arm_r' | 'leg_l' | 'leg_r';
+/** wound: 아직 낫는 중 / scar: 흉터(후유증) / lost: 결손 / prosthetic: 의수·의족 */
+export type WoundKind = 'wound' | 'scar' | 'lost' | 'prosthetic';
+export interface Wound {
+  part: BodyPart;
+  kind: WoundKind;
+  /** wound 가 낫는 날 */
+  until?: number;
+}
+
 /**
  * 얼굴·몸 파츠 조합용 난수 값. 숫자는 그냥 큰 정수이고, 화면에서 가진 파츠 개수로 나눈 나머지를 쓴다.
  * 그림이 늘어도 기존 생존자의 모습이 크게 바뀌지 않고, 시뮬은 그림 파일을 몰라도 된다.
@@ -54,6 +74,19 @@ export interface Survivor {
   age: number;
   /** 정착지에 합류한 날 */
   joined: number;
+  /** 지금 기분에 작용하는 생각들 */
+  thoughts: Thought[];
+  /** 다른 생존자와의 호감도 (-100~100) */
+  bonds: Record<string, number>;
+  /** 시설별 일 선호도: 1(가장 하고 싶음) ~ 4, 0 = 맡기지 않음 */
+  prio: Partial<Record<FacilityId, number>>;
+  /** true 이면 우선순위 표대로 자동 배치 */
+  auto: boolean;
+  /** 부위별 부상과 후유증 */
+  wounds: Wound[];
+  /** 정신 붕괴 중이면 그 종류와 끝나는 날 */
+  breakKind?: string;
+  breakUntil?: number;
   /** 일반 생존자의 외형 값 (네임드는 고정 그림을 쓰므로 없다) */
   look?: Look;
   /** 네임드: 사연과 유언 */
@@ -110,13 +143,19 @@ export interface Commander {
 }
 
 /** 플레이어가 결정해야 일이 진행되는 사건 */
-export interface Pending {
-  kind: 'serum';
-  aceId: string;
+export type EventKind = 'raid' | 'trader' | 'wanderer' | 'quarrel';
+export type Pending =
+  | { kind: 'serum'; aceId: string }
+  | { kind: 'event'; event: EventKind; data: Record<string, number | string> };
+
+/** 이야기꾼의 상태: 다음 사건 시점과 최근 사건 */
+export interface StoryState {
+  next: number;
+  recent: { day: number; kind: string }[];
 }
 
 export interface Game {
-  version: 4;
+  version: 5;
   day: number;
   /** 실제 시간 → 게임 시간 (⚠ 임시 값: dayMs) */
   clock: { last: number; carry: number; dayMs: number };
@@ -134,6 +173,7 @@ export interface Game {
   expeditions: Expedition[];
   cleared: Record<string, number>;
   pending: Pending | null;
+  story: StoryState;
   /** 특수 세럼을 구하러 간 생존자 */
   serum: { survivorId: string; aceId: string; dueDay: number } | null;
   /** 치명적 질병에 걸린 생존자 id → 이 날까지 치료 못 하면 사망 */

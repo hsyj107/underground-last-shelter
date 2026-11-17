@@ -2,15 +2,19 @@ import {
   AREAS, BACKGROUNDS, FACILITY_DEFS, JOB_LABEL, MAX_FACILITY_LEVEL, POLICIES, TITLES, upgradeCost, xpToNext, type FacilityDef,
 } from '../sim/data';
 import {
-  assign, atBunker, byId, capacity, dangerLabel, endDay, facilityState, forecast, newGame, resLabel,
-  resolveSerum, setException, setMemorial, setPolicy, startExpedition, unlockConditions, unlockFacility, upgradeFacility,
-  workersOf, type ActionResult,
+  assign, atBunker, byId, capacity, craftProsthetic, dangerLabel, endDay, facilityState, forecast, newGame, resLabel,
+  resolveDecision, resolveSerum, setAuto, setException, setMemorial, setPolicy, setPrio, startExpedition, unlockConditions,
+  unlockFacility, upgradeFacility, workersOf, type ActionResult,
 } from '../sim/engine';
+import { inBreak } from '../sim/core';
+import { activeThoughts, BREAK_LABEL, bondLabel, bondOf } from '../sim/mind';
+import { KIND_LABEL, PART_LABEL, PROSTHETIC, bodyFactor } from '../sim/body';
+import { eventView } from '../sim/story';
 import { DAY_MS, msToNextDay, tick } from '../sim/clock';
 import { loadGame, saveGame } from '../sim/save';
 import { layoutActors, syncActors, tickActors, SHAFT_X } from './actors';
 import { figureHtml, loadParts } from './figures';
-import { RES_KEYS, type Exception, type FacilityId, type Game, type LogEntry, type Survivor } from '../sim/types';
+import { RES_KEYS, type BodyPart, type Exception, type FacilityId, type Game, type LogEntry, type Survivor } from '../sim/types';
 
 /**
  * 단말기 화면. 상태는 sim/ 의 game 하나뿐이고, 화면은 그 상태를 그릴 뿐이다.
@@ -28,6 +32,8 @@ interface UiState {
   /** 쉘터에서 방이나 생존자를 눌렀을 때 아래에서 올라오는 창 */
   sheet: { kind: 'room' | 'crew'; id: string } | null;
   crew: string | null;
+  /** 생존자 탭: 명단 / 작업표 */
+  crewView: 'list' | 'grid';
   area: string | null;
   team: string[];
   /** 신규 접속 화면에서 고른 값 */
@@ -36,7 +42,7 @@ interface UiState {
   toast: string;
 }
 
-const ui: UiState = { tab: 'shelter', sheet: null, crew: null, area: null, team: [], nick: '', bg: 0, toast: '' };
+const ui: UiState = { tab: 'shelter', sheet: null, crew: null, crewView: 'list', area: null, team: [], nick: '', bg: 0, toast: '' };
 let game: Game | null = null;
 let root: HTMLElement;
 let modal: string | null = null;
@@ -140,7 +146,7 @@ function roomHtml(g: Game, d: FacilityDef): string {
 /** 방 위를 덮는 층에서 돌아다니는 생존자들. 위치는 actors.ts 가 정한다 */
 function peopleHtml(g: Game): string {
   const svs = atBunker(g).map((s) => {
-    const cls = [s.status === 'sick' || s.status === 'injured' ? 'sick' : '', s.status === 'critical' ? 'crit' : '', s.stress >= 85 ? 'mad' : ''].join(' ');
+    const cls = [s.status === 'sick' || s.status === 'injured' ? 'sick' : '', s.status === 'critical' ? 'crit' : '', s.stress >= 85 ? 'mad' : '', inBreak(g, s) ? 'brk' : ''].join(' ');
     return `<div class="sv ${cls}" data-act="crewsheet" data-arg="${s.id}" data-d="1">
       <span class="nm">${s.named ? '★' : ''}${esc(s.name)}</span>${s.status === 'critical' || s.stress >= 85 ? '<span class="bang">!</span>' : ''}
       <span class="fx"></span>${figureHtml(s)}</div>`;
@@ -165,24 +171,75 @@ function logLine(e: LogEntry): string {
   return `<div class="${cls}"><span class="d">D${e.day}</span> ${esc(e.text)}</div>`;
 }
 
+const ABBR: Record<string, string> = {
+  power_plant: '발전', water_purifier: '정수', farm: '농장', dormitory: '숙소', medical: '의료', workshop: '공방', laboratory: '연구', armory: '무기',
+};
+
 function viewCrew(g: Game): string {
   const list = g.survivors.filter((s) => s.status !== 'dead');
   if (list.length === 0) return '<p class="note">생존자 없음.</p>';
-  return `<p class="note">생존자 ${list.length}/${capacity(g)}. 인원을 눌러 배치와 배급 예외를 지정합니다.</p>` + list.map((s) => crewCard(g, s)).join('');
+  const sw = `<div class="row" style="margin-bottom:8px">
+    <button class="btn sm ${ui.crewView === 'list' ? '' : 'ghost'}" data-act="crewview" data-arg="list">명단</button>
+    <button class="btn sm ${ui.crewView === 'grid' ? '' : 'ghost'}" data-act="crewview" data-arg="grid">작업 우선순위표</button></div>`;
+  if (ui.crewView === 'grid') return sw + gridHtml(g, list);
+  return sw + `<p class="note">생존자 ${list.length}/${capacity(g)}. 인원을 눌러 상태·관계·몸·배치를 봅니다.</p>` + list.map((s) => crewCard(g, s)).join('');
+}
+
+/** 생존자 × 시설 우선순위표. 칸을 누르면 1→2→3→4→안 함 순으로 바뀝니다 */
+function gridHtml(g: Game, list: Survivor[]): string {
+  const open = FACILITY_DEFS.filter((d) => g.facilities[d.id] > 0);
+  const head = open.map((d) => `<th>${ABBR[d.id]}</th>`).join('');
+  const rows = list.map((s) => {
+    const cells = open.map((d) => {
+      const v = s.prio[d.id] ?? 3;
+      return `<td><button class="pc p${v} ${s.post === d.id ? 'at' : ''}" data-act="prio" data-arg="${s.id}|${d.id}">${v === 0 ? '–' : v}</button></td>`;
+    }).join('');
+    return `<tr><td class="gn" data-act="crewsheet" data-arg="${s.id}">${s.named ? '★' : ''}${esc(s.name)}</td>${cells}
+      <td><button class="pc ${s.auto ? 'on' : ''}" data-act="auto" data-arg="${s.id}">${s.auto ? '자동' : '수동'}</button></td></tr>`;
+  }).join('');
+  return `<p class="note">숫자가 작을수록 하고 싶은 일(1=가장 원함, –=맡기지 않음). 밝게 표시된 칸이 지금 맡은 시설입니다. [자동]이면 이 표대로 배치되고, 직접 배치하면 [수동]이 됩니다.</p>
+    <div class="gridwrap"><table class="grid"><tr><th></th>${head}<th>배치</th></tr>${rows}</table></div>`;
+}
+
+function moodLabel(stress: number): string {
+  return stress < 30 ? '평온' : stress < 50 ? '안정' : stress < 70 ? '불안' : stress < 85 ? '위태' : '붕괴 직전';
 }
 
 function crewCard(g: Game, s: Survivor, forceOpen = false): string {
   const open = forceOpen || ui.crew === s.id;
   const ex = s.exception === 'special' ? '<span class="tag good">특식</span>' : s.exception === 'withhold' ? '<span class="tag bad">배급 제외</span>' : '';
+  const brk = inBreak(g, s) ? `<span class="tag bad">${BREAK_LABEL[s.breakKind ?? ''] ?? '붕괴'}</span>` : '';
   let detail = '';
   if (open) {
     const slots = FACILITY_DEFS.filter((d) => g.facilities[d.id] > 0);
     const canMove = s.status !== 'away' && s.status !== 'critical';
+
+    const thoughts = [...activeThoughts(g, s)].sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 8)
+      .map((t) => `<div class="${t.value < 0 ? 'bad' : 'good'}">${t.value > 0 ? '+' : ''}${Math.round(t.value)} ${esc(t.text)}</div>`).join('') || '<div class="dim">특별한 생각 없음</div>';
+
+    const bonds = g.survivors.filter((o) => o.id !== s.id && o.status !== 'dead')
+      .map((o) => ({ o, v: bondOf(s, o) })).filter((x) => Math.abs(x.v) >= 15)
+      .sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).slice(0, 5)
+      .map((x) => `<div class="${x.v < 0 ? 'bad' : 'good'}">${esc(x.o.name)} — ${bondLabel(x.v)} (${x.v > 0 ? '+' : ''}${x.v})</div>`).join('') || '<div class="dim">아직 이렇다 할 관계가 없습니다.</div>';
+
+    const body = s.wounds.map((w) => {
+      const label = `${PART_LABEL[w.part]} ${KIND_LABEL[w.kind]}${w.kind === 'wound' && w.until ? ` (${Math.max(0, w.until - g.day)}일 후 아묾)` : ''}`;
+      const craft = w.kind === 'lost'
+        ? ` <button class="btn sm ghost" data-act="prosthetic" data-arg="${s.id}|${w.part}">의수·의족 (고철 ${PROSTHETIC.scrap}·의약품 ${PROSTHETIC.medicine})</button>` : '';
+      return `<div class="${w.kind === 'lost' ? 'bad' : w.kind === 'prosthetic' ? 'warn' : ''}">${label}${craft}</div>`;
+    }).join('') || '<div class="dim">온전한 몸</div>';
+
     detail = `<div style="margin-top:8px" data-stop="1">
       <p class="note">${esc(s.story ?? '이름 없는 생존자. 폐허에서 살아남았다는 것 외에는 알려진 게 없다.')}</p>
-      <p class="note">숙련도 ${'★'.repeat(s.skill)}${'☆'.repeat(5 - s.skill)}</p>
-      ${canMove ? `<div class="sub">배치</div><div class="row">
-        <button class="btn sm ${s.post === null ? '' : 'ghost'}" data-act="assign" data-arg="${s.id}|">대기</button>
+      <p class="note">숙련도 ${'★'.repeat(s.skill)}${'☆'.repeat(5 - s.skill)} · 몸 상태 능률 ${Math.round(bodyFactor(s) * 100)}%</p>
+      <div class="sub">기분 — ${moodLabel(s.stress)}</div><div class="log">${thoughts}</div>
+      <div class="sub" style="margin-top:8px">관계</div><div class="log">${bonds}</div>
+      <div class="sub" style="margin-top:8px">몸</div><div class="log">${body}</div>
+      <div class="sub" style="margin-top:8px">작업 우선순위 (1=가장 원함, –=안 함) · 눌러서 바꿉니다</div><div class="row">
+        ${slots.map((d) => { const v = s.prio[d.id] ?? 3; return `<button class="pc p${v} ${s.post === d.id ? 'at' : ''}" style="width:auto;padding:2px 7px" data-act="prio" data-arg="${s.id}|${d.id}">${ABBR[d.id]} ${v === 0 ? '–' : v}</button>`; }).join('')}
+        <button class="pc ${s.auto ? 'on' : ''}" style="width:auto;padding:2px 7px" data-act="auto" data-arg="${s.id}">${s.auto ? '자동 배치 중' : '직접 배치 중'}</button></div>
+      ${canMove ? `<div class="sub" style="margin-top:8px">직접 배치</div><div class="row">
+        <button class="btn sm ${s.post === null && !s.auto ? '' : 'ghost'}" data-act="assign" data-arg="${s.id}|">대기</button>
         ${slots.map((d) => `<button class="btn sm ${s.post === d.id ? '' : 'ghost'}" data-act="assign" data-arg="${s.id}|${d.id}">${d.name}</button>`).join('')}</div>` : '<p class="note">지금은 배치를 바꿀 수 없습니다.</p>'}
       <div class="sub" style="margin-top:8px">배급 예외 (개인 수동 처리)</div><div class="row">
         <button class="btn sm ${s.exception === null ? '' : 'ghost'}" data-act="ex" data-arg="${s.id}|">정책 따름</button>
@@ -192,8 +249,8 @@ function crewCard(g: Game, s: Survivor, forceOpen = false): string {
   }
   return `<div class="card ${forceOpen ? '' : 'tap'} ${open ? 'on' : ''}" ${forceOpen ? '' : `data-act="crew" data-arg="${s.id}"`}>
     <div class="card-head">${portrait(s)}<div class="card-main">
-      <div class="title">${esc(s.name)}<span class="tag ${s.named ? 'named' : ''}">${s.named ? '네임드' : '일반'}</span>${statusTag(s)}${ex}</div>
-      <div class="sub">${JOB_LABEL[s.job]} · ${Math.floor(s.age)}세 · ${esc(s.trait)} · ${s.status === 'away' ? '원정 중' : facName(s.post)}</div>
+      <div class="title">${esc(s.name)}<span class="tag ${s.named ? 'named' : ''}">${s.named ? '네임드' : '일반'}</span>${statusTag(s)}${brk}${ex}</div>
+      <div class="sub">${JOB_LABEL[s.job]} · ${Math.floor(s.age)}세 · ${esc(s.trait)} · ${s.status === 'away' ? '원정 중' : facName(s.post)}${s.auto ? ' (자동)' : ''}</div>
       ${bar('체력', s.hp, 'low')}${bar('스트레스', s.stress, 'high')}${bar('충성도', s.loyalty, 'low')}
     </div></div>${detail}</div>`;
 }
@@ -304,7 +361,15 @@ function reportModal(title: string, entries: LogEntry[], note = ''): string {
 }
 
 function decisionModal(g: Game): string {
-  const ace = g.pending ? byId(g, g.pending.aceId) : null;
+  if (g.pending?.kind === 'event') {
+    const v = eventView(g);
+    if (!v) return '';
+    const choices = v.choices.map((c) => `<div class="pick ${c.disabled ? 'dead' : ''}" ${c.disabled ? '' : `data-act="event" data-arg="${c.id}"`} style="display:block">
+      <b>${esc(c.label)}</b><div class="sub">${esc(c.hint)}</div></div>`).join('');
+    return `<div class="modal"><div class="modal-box"><h1 class="warn">⚠ ${esc(v.title)}</h1>
+      <p>${esc(v.text)}</p><h2>어떻게 하겠습니까</h2>${choices}</div></div>`;
+  }
+  const ace = g.pending?.kind === 'serum' ? byId(g, g.pending.aceId) : null;
   if (!ace) return '';
   const cands = atBunker(g).filter((s) => s.status === 'ok' && s.id !== ace.id);
   const list = cands.map((s) => `<div class="pick" data-act="serum" data-arg="${s.id}">${portrait(s, 1)}<div><b>${esc(s.name)}</b> ${s.named ? '<span class="tag named">네임드</span>' : ''}<div class="sub">${JOB_LABEL[s.job]} · ${'★'.repeat(s.skill)} · 체력 ${Math.round(s.hp)}</div></div></div>`).join('') || '<p class="note">파견할 수 있는 인원이 없습니다.</p>';
@@ -485,6 +550,23 @@ function act(name: string, arg: string): void {
       modal = null;
       refreshModal();
       return result(r);
+    }
+    case 'event': {
+      const r = resolveDecision(g, arg);
+      if (r.ok) modal = null;
+      refreshModal();
+      return result(r);
+    }
+    case 'crewview': ui.crewView = arg as 'list' | 'grid'; break;
+    case 'prio': {
+      const [id, fac] = arg.split('|');
+      const cur = byId(g, id)?.prio[fac as FacilityId] ?? 3;
+      return result(setPrio(g, id, fac as FacilityId, cur === 0 ? 1 : cur === 4 ? 0 : cur + 1));
+    }
+    case 'auto': return result(setAuto(g, arg, !(byId(g, arg)?.auto ?? false)));
+    case 'prosthetic': {
+      const [id, part] = arg.split('|');
+      return result(craftProsthetic(g, id, part as BodyPart));
     }
     case 'closeModal':
       modal = null;

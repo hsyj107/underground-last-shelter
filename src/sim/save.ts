@@ -5,7 +5,7 @@ import type { Game, RunRecord } from './types';
  * ⚠ 임시: 이 기기의 브라우저에만 저장한다. 서버(Supabase) 저장과 검증은 이후 단계에서 붙인다.
  * 처음부터 다시 하려면 주소 끝에 ?reset 을 붙여서 연다.
  */
-const SAVE_KEY = 'uls.save.v4';
+const SAVE_KEY = 'uls.save.v5';
 const HISTORY_KEY = 'uls.history.v1';
 
 export function loadGame(): Game | null {
@@ -17,7 +17,7 @@ export function loadGame(): Game | null {
     const raw = window.localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const g = JSON.parse(raw) as Game;
-    return g.version === 4 ? g : null;
+    return g.version === 5 ? g : null;
   } catch {
     return null;
   }

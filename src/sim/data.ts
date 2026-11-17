@@ -130,7 +130,8 @@ export const AREAS: AreaDef[] = [
   },
 ];
 
-type NamedSeed = Omit<Survivor, 'hp' | 'stress' | 'loyalty' | 'status' | 'post' | 'exception' | 'age' | 'joined'>;
+type NamedSeed = Omit<Survivor,
+  'hp' | 'stress' | 'loyalty' | 'status' | 'post' | 'exception' | 'age' | 'joined' | 'thoughts' | 'bonds' | 'prio' | 'auto' | 'wounds'>;
 
 /**
  * 실제 시간 → 게임 시간.
@@ -237,6 +238,26 @@ const JOB_PROFILE: Record<Job, JobProfile> = {
   laborer: { age: [20, 58], skill: [6, 4, 1, 0, 0], noun: '일용직', traits: ['성실한', '몸이 튼튼한', '시키는 건 하는', '요령 있는', '입이 거친'] },
 };
 
+/** 직업별로 잘 맞는 시설 (1순위·2순위). 나머지는 3순위, 숙소·무기고처럼 안 맞는 곳은 4순위 */
+const JOB_FIT: Record<Job, [FacilityId[], FacilityId[]]> = {
+  engineer: [['power_plant'], ['water_purifier', 'workshop']],
+  medic: [['medical'], ['laboratory', 'dormitory']],
+  farmer: [['farm'], ['water_purifier', 'dormitory']],
+  scout: [['armory'], ['workshop']],
+  guard: [['armory'], ['power_plant']],
+  caretaker: [['dormitory'], ['farm', 'medical']],
+  mechanic: [['workshop'], ['power_plant', 'armory']],
+  researcher: [['laboratory'], ['medical']],
+  laborer: [['water_purifier', 'farm'], ['power_plant', 'workshop', 'dormitory']],
+};
+
+export function defaultPrio(job: Job): Partial<Record<FacilityId, number>> {
+  const [first, second] = JOB_FIT[job];
+  const prio: Partial<Record<FacilityId, number>> = {};
+  for (const f of FACILITY_DEFS) prio[f.id] = first.includes(f.id) ? 1 : second.includes(f.id) ? 2 : 3;
+  return prio;
+}
+
 const pick = <T,>(list: T[], rng: () => number): T => list[Math.floor(rng() * list.length)];
 
 function weighted(weights: number[], rng: () => number): number {
@@ -275,6 +296,11 @@ export function makeNormal(id: string, rng: () => number, job?: Job, day = 1): S
     exception: null,
     age,
     joined: day,
+    thoughts: [],
+    bonds: {},
+    prio: defaultPrio(j),
+    auto: true,
+    wounds: [],
     look: {
       body: lookInt(rng), hair: lookInt(rng), outfit: lookInt(rng), acc: lookInt(rng),
       skin: lookInt(rng), hairColor: lookInt(rng), height: Math.floor(rng() * 100),
@@ -286,6 +312,7 @@ export function fromSeed(seed: NamedSeed, day = 1): Survivor {
   return {
     ...seed, hp: 100, stress: 15, loyalty: 70, status: 'ok', post: null, exception: null,
     age: NAMED_AGE[seed.id] ?? 35, joined: day,
+    thoughts: [], bonds: {}, prio: defaultPrio(seed.job), auto: true, wounds: [],
   };
 }
 

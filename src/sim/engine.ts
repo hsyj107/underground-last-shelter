@@ -1,18 +1,26 @@
 import {
-  AREAS, DAY_MS, YEAR_DAYS, FACILITY_DEFS, MAX_FACILITY_LEVEL, RATION_BASE, RECRUIT_NAMED, STARTING_NAMED, TITLES, bedCapacity,
-  fromSeed, lastWords, makeNormal, upgradeCost, xpToNext, type AreaDef, type FacilityDef,
+  AREAS, DAY_MS, YEAR_DAYS, FACILITY_DEFS, MAX_FACILITY_LEVEL, RATION_BASE, RECRUIT_NAMED, STARTING_NAMED, TITLES,
+  fromSeed, makeNormal, upgradeCost, xpToNext, type AreaDef, type FacilityDef,
 } from './data';
 import {
-  RES_KEYS, type Commander, type Exception, type FacilityId, type Game, type LogEntry, type LogKind,
+  RES_KEYS, type BodyPart, type Commander, type Exception, type FacilityId, type Game, type LogEntry, type LogKind,
   type RationPolicy, type ResKey, type Rng, type Stock, type Survivor,
 } from './types';
+import {
+  alive, atBunker, byId, capacity, clamp, makeSay, workersOf, type ActionResult,
+} from './core';
+import { bodyFactor, canTravel, healWounds, hpPenalty, injure, PROSTHETIC, woundOn } from './body';
+import { killSurvivor, mentalBreaks, mourn, updateBonds, updateStress } from './mind';
+import { resolveEvent, rollStory } from './story';
+
+export { alive, atBunker, byId, capacity, workersOf };
+export type { ActionResult };
 
 /**
  * 게임 규칙 전부. 화면과 상관없이 동작하는 순수 계산이다.
  * ⚠ 지금은 브라우저에서 계산·저장한다. 이후 서버(Supabase)에서 같은 규칙으로 검증한다.
  */
 
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 const facilityDef = (id: FacilityId): FacilityDef => FACILITY_DEFS.find((f) => f.id === id) as FacilityDef;
 
 // ───────── 새 게임 ─────────
@@ -28,12 +36,9 @@ export function newGame(
   const choi = fromSeed(STARTING_NAMED[1]);
   const a = makeNormal('s1', rng, 'laborer', 1);
   const b = makeNormal('s2', rng, 'farmer', 1);
-  han.post = 'power_plant';
-  a.post = 'water_purifier';
-  b.post = 'farm';
 
-  return {
-    version: 4,
+  const g: Game = {
+    version: 5,
     day: 1,
     clock: { last: now, carry: 0, dayMs },
     chronicle: [{ day: 1, text: '정착지 가동 시작.' }],
@@ -48,6 +53,7 @@ export function newGame(
     expeditions: [],
     cleared: {},
     pending: null,
+    story: { next: 4, recent: [] },
     serum: null,
     critical: {},
     obituaries: [],
@@ -55,17 +61,12 @@ export function newGame(
     nextId: 3,
     touched: false,
   };
+  autoAssign(g);
+  return g;
 }
 
 // ───────── 조회 ─────────
 
-export const alive = (g: Game): Survivor[] => g.survivors.filter((s) => s.status !== 'dead');
-export const atBunker = (g: Game): Survivor[] => g.survivors.filter((s) => s.status !== 'dead' && s.status !== 'away');
-export const byId = (g: Game, id: string): Survivor | undefined => g.survivors.find((s) => s.id === id);
-export const capacity = (g: Game): number => bedCapacity(g.facilities.dormitory);
-
-const canWork = (s: Survivor): boolean => s.status === 'ok' || s.status === 'sick' || s.status === 'injured';
-export const workersOf = (g: Game, id: FacilityId): Survivor[] => g.survivors.filter((s) => s.post === id && canWork(s));
 
 export type FacilityState = 'locked' | 'idle' | 'active';
 export function facilityState(g: Game, id: FacilityId): FacilityState {
@@ -128,7 +129,7 @@ export function modifiers(g: Game): Mods {
 
 // ───────── 일일 수지 예상 ─────────
 
-const skillFactor = (s: Survivor): number => (0.7 + 0.1 * s.skill) * (s.status === 'ok' ? 1 : 0.6);
+const skillFactor = (s: Survivor): number => (0.7 + 0.1 * s.skill) * (s.status === 'ok' ? 1 : 0.6) * bodyFactor(s);
 
 function rationFactor(g: Game, s: Survivor): number {
   if (s.exception === 'withhold') return 0;
@@ -191,10 +192,6 @@ export const resLabel = (k: ResKey): string => ({ food: '식량', water: '식수
 
 // ───────── 플레이어 조작 ─────────
 
-export interface ActionResult {
-  ok: boolean;
-  message: string;
-}
 const fail = (message: string): ActionResult => ({ ok: false, message });
 const done = (g: Game, message: string): ActionResult => {
   g.touched = true;
@@ -224,7 +221,87 @@ export function assign(g: Game, id: string, post: FacilityId | null): ActionResu
     for (const other of g.survivors) if (other.post === post && other.id !== id) other.post = null;
   }
   s.post = post;
+  s.auto = false;
   return done(g, post ? `${s.name}: ${facilityDef(post).name} 배치.` : `${s.name}: 대기 전환.`);
+}
+
+// ───────── 작업 우선순위와 자동 배치 ─────────
+
+/** 기본 시설들이 먼저 돌아가도록 하는 중요도 */
+const FACILITY_WEIGHT: Record<FacilityId, number> = {
+  power_plant: 3, water_purifier: 3, farm: 3, medical: 2, dormitory: 2, workshop: 1, laboratory: 1, armory: 1,
+};
+
+/**
+ * 자동 배치 대상 인원을 우선순위 표대로 시설에 앉힌다.
+ * 직접 배치한 인원(auto 꺼짐)의 시설은 건드리지 않는다.
+ */
+export function autoAssign(g: Game): void {
+  const open = FACILITY_DEFS.filter((d) => g.facilities[d.id] > 0).map((d) => d.id);
+  const held = new Set<FacilityId>();
+  for (const s of atBunker(g)) if (!s.auto && s.post && open.includes(s.post)) held.add(s.post);
+  const pool = atBunker(g).filter((s) => s.auto && s.status !== 'critical');
+  const pairs: { s: Survivor; f: FacilityId; score: number }[] = [];
+  for (const s of pool) {
+    for (const f of open) {
+      const pr = s.prio[f] ?? 3;
+      if (held.has(f) || pr <= 0) continue;
+      pairs.push({ s, f, score: FACILITY_WEIGHT[f] * 20 + (5 - pr) * 8 + s.skill * 3 + (s.post === f ? 10 : 0) });
+    }
+  }
+  pairs.sort((x, y) => y.score - x.score);
+  const usedS = new Set<string>();
+  const usedF = new Set<FacilityId>();
+  for (const s of pool) s.post = null;
+  for (const p of pairs) {
+    if (usedS.has(p.s.id) || usedF.has(p.f)) continue;
+    p.s.post = p.f;
+    usedS.add(p.s.id);
+    usedF.add(p.f);
+  }
+}
+
+export function setPrio(g: Game, id: string, facility: FacilityId, value: number): ActionResult {
+  const s = byId(g, id);
+  if (!s || s.status === 'dead') return fail('대상을 찾을 수 없습니다.');
+  s.prio[facility] = clamp(Math.round(value), 0, 4);
+  if (s.auto) autoAssign(g);
+  return done(g, `${s.name}: ${facilityDef(facility).name} 우선순위 ${s.prio[facility] === 0 ? '제외' : s.prio[facility]}.`);
+}
+
+export function setAuto(g: Game, id: string, auto: boolean): ActionResult {
+  const s = byId(g, id);
+  if (!s || s.status === 'dead') return fail('대상을 찾을 수 없습니다.');
+  s.auto = auto;
+  if (auto) autoAssign(g);
+  return done(g, auto ? `${s.name}: 우선순위 표대로 자동 배치.` : `${s.name}: 직접 배치로 전환.`);
+}
+
+/** 공방에서 잃은 팔다리를 의수·의족으로 대신한다 */
+export function craftProsthetic(g: Game, id: string, part: BodyPart): ActionResult {
+  const s = byId(g, id);
+  if (!s || s.status === 'dead' || s.status === 'away') return fail('지금은 제작할 수 없습니다.');
+  const w = woundOn(s, part);
+  if (!w || w.kind !== 'lost') return fail('잃은 부위가 아닙니다.');
+  if (g.facilities.workshop < PROSTHETIC.workshop || workersOf(g, 'workshop').length === 0) {
+    return fail(`공방 Lv.${PROSTHETIC.workshop} 이상에 담당자가 있어야 합니다.`);
+  }
+  if (g.stock.scrap < PROSTHETIC.scrap || g.stock.medicine < PROSTHETIC.medicine) {
+    return fail(`고철 ${PROSTHETIC.scrap}·의약품 ${PROSTHETIC.medicine}이(가) 필요합니다.`);
+  }
+  g.stock.scrap -= PROSTHETIC.scrap;
+  g.stock.medicine -= PROSTHETIC.medicine;
+  w.kind = 'prosthetic';
+  g.tally.mercy += 1;
+  g.log.push({ day: g.day, kind: 'good', text: `${s.name}에게 의수·의족을 달아 주었습니다.` });
+  return done(g, `${s.name}: 의수·의족 장착 완료.`);
+}
+
+/** 사건 결정을 처리한다 */
+export function resolveDecision(g: Game, choice: string, rng: Rng = Math.random): ActionResult {
+  const r = resolveEvent(g, choice, rng, makeSay(g));
+  if (r.ok) g.touched = true;
+  return r;
 }
 
 export function unlockFacility(g: Game, id: FacilityId): ActionResult {
@@ -259,7 +336,7 @@ export interface ExpeditionPlan {
 }
 
 function expeditionOdds(g: Game, area: AreaDef, members: Survivor[]): ExpeditionPlan {
-  const power = members.reduce((sum, s) => sum + 10 * s.skill * (0.5 + 0.5 * (s.hp / 100)), 0);
+  const power = members.reduce((sum, s) => sum + 10 * s.skill * (0.5 + 0.5 * (s.hp / 100)) * bodyFactor(s), 0);
   const ratio = power / (area.danger + 10);
   let death = (0.3 * (area.danger / 100)) / Math.max(0.3, ratio);
   const armory = workersOf(g, 'armory').length > 0 ? g.facilities.armory : 0;
@@ -284,6 +361,7 @@ export function startExpedition(g: Game, areaId: string, memberIds: string[]): A
   if (g.expeditions.some((e) => e.areaId === areaId)) return fail('이미 이 지역으로 파견 중입니다.');
   const members = memberIds.map((id) => byId(g, id));
   if (members.some((s) => !s || s.status !== 'ok')) return fail('건강한 인원만 파견할 수 있습니다.');
+  if (members.some((s) => s && (!canTravel(s) || s.breakUntil !== undefined && s.breakUntil >= g.day))) return fail('원정을 나갈 수 없는 몸 상태입니다.');
   for (const s of members as Survivor[]) {
     s.status = 'away';
     s.post = null;
@@ -298,7 +376,7 @@ export function startExpedition(g: Game, areaId: string, memberIds: string[]): A
 /** survivorId 를 보내면 세럼 확보 작전, null 이면 에이스를 포기한다. */
 export function resolveSerum(g: Game, survivorId: string | null): ActionResult {
   const p = g.pending;
-  if (!p) return fail('결정할 사안이 없습니다.');
+  if (!p || p.kind !== 'serum') return fail('결정할 사안이 없습니다.');
   const ace = byId(g, p.aceId);
   if (!ace) {
     g.pending = null;
@@ -335,23 +413,10 @@ export interface DayResult {
 export function endDay(g: Game, rng: Rng = Math.random): DayResult {
   const entries: LogEntry[] = [];
   if (g.pending) return { entries, decision: false };
-  const say = (kind: LogKind, text: string): void => {
-    const e: LogEntry = { day: g.day, kind, text };
-    entries.push(e);
-    g.log.push(e);
-  };
+  autoAssign(g);
+  const say = makeSay(g, entries);
   const mods = modifiers(g);
-  const deathsToday: Survivor[] = [];
-  const kill = (s: Survivor, cause: string): void => {
-    if (s.status === 'dead') return;
-    const last = lastWords(s, cause, rng);
-    s.status = 'dead';
-    s.post = null;
-    delete g.critical[s.id];
-    g.obituaries.push({ day: g.day, name: s.name, job: s.job, named: s.named, cause, last, age: Math.floor(s.age), served: g.day - s.joined, memorial: false });
-    say('death', `[사망] ${s.name} — ${cause}. 마지막 기록: "${last}"`);
-    deathsToday.push(s);
-  };
+  const kill = (s: Survivor, cause: string): void => killSurvivor(g, s, cause, rng, say);
 
   // 1. 시설 가동
   const produced: Stock = { food: 0, water: 0, power: 0, medicine: 0, scrap: 0 };
@@ -448,7 +513,8 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
 
     // 노화: 나이가 들수록 체력 상한이 내려가고 병에 약해진다 (⚠ 임시 수치)
     s.age += 1 / YEAR_DAYS;
-    const hpMax = Math.max(40, 100 - Math.max(0, s.age - 60) * 1.5);
+    const hpMax = Math.max(40, 100 - Math.max(0, s.age - 60) * 1.5 - hpPenalty(s));
+    for (const note of healWounds(s, rng, g.day)) say('warn', `${s.name}: ${note}.`);
     const agePenalty = Math.max(0, s.age - 55) * 0.002;
 
     // 체력
@@ -472,16 +538,10 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
       }
     }
 
-    // 스트레스
-    let up = 2 + (1 - rf) * 6 + (1 - rw) * 8;
-    if (g.policy === 'emergency') up += 4;
-    if (g.policy === 'merit') up += low ? 3 : ace ? -1 : 0;
-    if (s.exception === 'withhold') up += 8;
-    up += s.exception === 'withhold' ? 0 : withheld;
-    up *= mods.stress;
-    let down = 1 + (dormStaffed ? 2 + g.facilities.dormitory : 0);
-    if (s.exception === 'special') down += 4;
-    s.stress = clamp(s.stress + up - down, 0, 100);
+    // 스트레스: 오늘의 생각들이 가리키는 목표치로 움직인다
+    updateStress(g, s, {
+      rf, rw, stressMod: mods.stress, withheld, dormStaffed, dormLevel: g.facilities.dormitory, low, ace,
+    });
 
     // 충성도
     let loy = 0;
@@ -517,7 +577,9 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
     if (s.age >= 70 && rng() < 0.00002 * (s.age - 69) ** 2) kill(s, '노령');
   }
 
-  // 8. 야반도주
+  // 8. 관계 변화와 정신 붕괴, 야반도주
+  updateBonds(g, rng, say);
+  mentalBreaks(g, rng, say);
   for (const s of atBunker(g)) {
     if (s.stress >= 90 && s.loyalty <= 25 && rng() < 0.35) {
       const loot: Partial<Stock> = {
@@ -528,15 +590,7 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
       s.post = null;
       g.obituaries.push({ day: g.day, name: s.name, job: s.job, named: s.named, cause: '야반도주 (자원 탈취)', last: '(기록 없음)', age: Math.floor(s.age), served: g.day - s.joined, memorial: false });
       say('bad', `[이탈] ${s.name}이(가) 식량·식수·고철을 챙겨 야반도주했습니다.`);
-      deathsToday.push(s);
-    }
-  }
-
-  // 9. 남은 사람들의 동요
-  for (const d of deathsToday) {
-    for (const s of atBunker(g)) {
-      s.stress = clamp(s.stress + (d.named ? 5 : 2), 0, 100);
-      if (d.exception === 'withhold') s.loyalty = clamp(s.loyalty - 5, 0, 100);
+      mourn(g, s);
     }
   }
 
@@ -592,6 +646,9 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
     }
   }
 
+  // 13. 이야기꾼: 사건
+  if (!g.pending) rollStory(g, rng, say);
+
   if (atBunker(g).length === 0 && g.expeditions.length === 0 && !g.serum) {
     collapse(g, '전멸', '벙커에 남은 인원이 없습니다.', say, rng);
     return { entries, decision: false };
@@ -619,7 +676,8 @@ function resolveExpedition(
     } else if (roll < odds.death + odds.injure) {
       s.status = 'injured';
       s.hp = Math.max(20, s.hp - 35);
-      hurt.push(s.name);
+      const note = injure(s, rng, g.day, rng() < 0.3);
+      hurt.push(note ? `${s.name}(${note})` : s.name);
       back.push(s);
     } else {
       s.status = 'ok';
@@ -698,6 +756,7 @@ function collapse(g: Game, cause: string, summary: string, say: (k: LogKind, t: 
   g.expeditions = [];
   g.serum = null;
   g.pending = null;
+  g.story = { next: g.day + 4, recent: [] };
   g.critical = {};
   g.survivors = [];
   const crew: [FacilityId, 'engineer' | 'laborer' | 'farmer'][] = [['power_plant', 'engineer'], ['water_purifier', 'laborer'], ['farm', 'farmer']];
@@ -707,6 +766,7 @@ function collapse(g: Game, cause: string, summary: string, say: (k: LogKind, t: 
     s.post = post;
     g.survivors.push(s);
   }
+  autoAssign(g);
   g.touched = true;
   const entry = { day: g.day, text: '폐허 속에서 생존자 3명이 모여 정착지를 다시 일으킵니다.' };
   g.chronicle.push(entry);
