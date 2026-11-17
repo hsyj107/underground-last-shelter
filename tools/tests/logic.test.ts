@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ITEMS, ITEM_BY_ID, JOBS, ORIGINS, PROD, PROFS, SURV_BY_ID, ZONES, SHELF_ORDER, CAT_ORDER, RARITY, UPGRADES } from '../../src/data.ts';
+import { FLOORS, ITEMS, ITEM_BY_ID, JOBS, ORIGINS, PROD, PROFS, SURV_BY_ID, ZONES, SHELF_ORDER, CAT_ORDER, RARITY, UPGRADES } from '../../src/data.ts';
 import { SHAPES } from '../../src/shapes.ts';
 import * as g from '../../src/state.ts';
 
@@ -681,4 +681,40 @@ test('친한 사이가 같이 가면 들킬 확률이 낮아진다', () => {
   s.rel[g.relKey(a, b)] = 'friend';
   const after = g.previewExpedition(s, 'police', [a, b], 0).risk;
   assert.ok(after < before);
+});
+
+test('거주 구역: 침대가 차면 받을 수 없고, 층을 넓히면 받을 수 있다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0);
+  assert.equal(g.capacity(s), FLOORS[0].cap);
+  // 침대를 채운다
+  for (let i = 0; i < g.capacity(s); i++) join(s, PROFS[i].id);
+  assert.equal(g.freeBeds(s), 0);
+  s.nextVisit = 0;
+  g.tick(s, 1);
+  const id = s.visitor!;
+  assert.ok(id);
+  assert.ok(!g.recruit(s, id, 2), '침대가 없으면 받을 수 없다');
+  assert.equal(s.visitor, id); // 문 앞에 계속 서 있다
+  // 돈이 모자라면 확장 불가
+  s.caps = FLOORS[1].cost - 1;
+  assert.ok(!g.buyFloor(s));
+  s.caps = FLOORS[1].cost;
+  assert.ok(g.buyFloor(s));
+  assert.equal(s.caps, 0);
+  assert.equal(g.capacity(s), FLOORS[1].cap);
+  assert.ok(g.recruit(s, id, 3));
+  // 끝 층 이후에는 더 못 판다
+  s.floor = FLOORS.length - 1;
+  s.caps = 999999;
+  assert.equal(g.nextFloor(s), null);
+  assert.ok(!g.buyFloor(s));
+});
+
+test('거주 구역 데이터: 수용 인원은 층마다 늘고 비용도 늘어난다', () => {
+  for (let i = 1; i < FLOORS.length; i++) {
+    assert.ok(FLOORS[i].cap > FLOORS[i - 1].cap);
+    assert.ok(FLOORS[i].cost > FLOORS[i - 1].cost);
+  }
+  assert.equal(FLOORS[0].cost, 0);
 });

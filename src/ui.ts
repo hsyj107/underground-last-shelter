@@ -19,6 +19,7 @@ import {
   STAT_NAME,
   SURV_BY_ID,
   UPGRADES,
+  FLOORS,
   ZONES,
   KNOW_NAME,
   ZONE_BY_ID,
@@ -58,6 +59,10 @@ import {
   offlineCapMs,
   previewExpedition,
   recruit,
+  capacity,
+  freeBeds,
+  nextFloor,
+  buyFloor,
   rejectVisitor,
   EAT,
   saveState,
@@ -358,6 +363,7 @@ function homeHtml(): string {
 
   h += supplyHtml(now);
 
+  h += floorHtml();
   h += `<section class="card"><h3>🛠 개조</h3>`;
   (Object.keys(UPGRADES) as UpgKey[]).forEach((k) => {
     const u = UPGRADES[k];
@@ -371,6 +377,25 @@ function homeHtml(): string {
   });
   h += `</section>`;
   return h;
+}
+
+function floorHtml(): string {
+  const f = FLOORS[Math.min(S.floor, FLOORS.length - 1)];
+  const nx = nextFloor(S);
+  const used = S.crew.length;
+  const cap = capacity(S);
+  const beds = Array.from({ length: Math.max(cap, used) }, (_, i) => `<i class="bed ${i < used ? 'used' : ''}"></i>`).join('');
+  return `<section class="card floor"><h3>${f.icon} 거주 구역 <small>${f.name}</small></h3>
+    <p class="dim sm">${f.blurb}</p>
+    <div class="beds">${beds}</div>
+    <p class="sm"><b>침대 ${used}/${cap}</b> ${used >= cap ? '<em class="bad">— 가득 찼어요. 새 손님을 받으려면 넓혀야 해요.</em>' : `<span class="dim">· ${cap - used}자리 남음</span>`}</p>
+    ${
+      nx
+        ? `<div class="upg"><div class="ui">${nx.icon}</div>
+      <div class="ut"><b>아래로 파 내려가기 <small>${nx.name}</small></b><span>수용 ${cap}명 → ${nx.cap}명</span></div>
+      <button class="btn sm ${S.caps >= nx.cost ? 'primary' : ''}" data-act="buy-floor" ${S.caps >= nx.cost ? '' : 'disabled'}>● ${fmt(nx.cost)}</button></div>`
+        : '<p class="dim sm">더 이상 파 내려갈 곳이 없어요. 지금이 가장 깊은 층이에요.</p>'
+    }</section>`;
 }
 
 function resRow(k: ResKey, now: number): string {
@@ -519,6 +544,7 @@ function crewHtml(): string {
         <span class="aff"><span class="bar"><i style="width:${a}%"></i>${CHAPTER_AFF.map((t) => `<u style="left:${t}%"></u>`).join('')}</span><span class="pips">📖 ${ch}/3</span></span>`}
       </span></button>`;
   };
+  h = `<p class="dim sm bedline">🛏 침대 ${S.crew.length}/${capacity(S)}</p>` + h;
   h += row('me');
   for (const id of S.crew) h += row(id);
   const here = new Set([...S.crew, ...(S.visitor ? [S.visitor] : [])].map((id) => S.people[id]?.prof));
@@ -699,7 +725,8 @@ function openVisitor(): void {
     <p class="statline">${(Object.keys(STAT_NAME) as (keyof typeof STAT_NAME)[]).map((k) => `<span>${STAT_NAME[k]} <b>${d.stats[k]}</b></span>`).join('')}</p>
     <p class="buffline">✨ ${d.buff.text}</p>
     <p class="dim sm">한 명 늘 때마다 분당 식량 ${fmt2(EAT.food)} · 식수 ${fmt2(EAT.water)}씩 더 먹어요. 지금 ${heads(S)}명이 지내고 있어요.</p>
-    <button class="btn primary wide" data-act="recruit" data-id="${id}">들어오세요</button>
+    <p class="sm ${freeBeds(S) > 0 ? 'dim' : 'bad'}">🛏 침대 ${S.crew.length}/${capacity(S)}${freeBeds(S) > 0 ? '' : ' — 자리가 없어요. 거주 구역을 넓히기 전에는 받을 수 없어요.'}</p>
+    <button class="btn primary wide" data-act="recruit" data-id="${id}" ${freeBeds(S) > 0 ? '' : 'disabled'}>들어오세요</button>
     <button class="btn wide" data-act="close">조금만 더 기다려 주세요</button>
     <button class="btn danger wide" data-act="reject">미안하지만 받아 줄 수 없어요</button>`,
   );
@@ -1008,6 +1035,13 @@ function onClick(e: Event): void {
     case 'bag':
     case 'open-bag':
       openBag(id || undefined);
+      break;
+    case 'buy-floor':
+      if (buyFloor(S)) {
+        saveState(S);
+        toast(`${FLOORS[S.floor].name} 개방! 수용 ${capacity(S)}명`, 'good');
+        renderAll();
+      }
       break;
     case 'buy':
       if (buyUpgrade(S, el.dataset.key as UpgKey)) {

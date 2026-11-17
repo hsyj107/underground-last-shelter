@@ -12,6 +12,7 @@ import {
   ORIGIN_BY_ID,
   PROD,
   PROFS,
+  FLOORS,
   PROF_BY_ID,
   RARITY,
   SKINS,
@@ -101,6 +102,8 @@ export interface State {
   tapAt: Record<string, number>;
   tired: Record<string, number>;
   upg: Record<UpgKey, number>;
+  /** 열린 거주 구역(층) 수 - 1. FLOORS 의 인덱스 */
+  floor: number;
   exps: Expedition[];
   zoneClears: Record<string, number>;
   visitor: string | null;
@@ -176,6 +179,7 @@ export function newState(name: string, now: number, cr: Creation = defaultCreati
     tapAt: {},
     tired: {},
     upg: { farm: 0, water: 0, store: 0, pack: 0, radio: 0, gen: 0 },
+    floor: 0,
     exps: [],
     zoneClears: {},
     visitor: null,
@@ -480,8 +484,27 @@ export function unlockMet(s: State, u: Unlock): boolean {
   }
 }
 
+/** 받아 줄 수 있는 최대 인원 (관리자 제외) */
+export function capacity(s: State): number {
+  return FLOORS[Math.min(s.floor, FLOORS.length - 1)].cap;
+}
+export function freeBeds(s: State): number {
+  return capacity(s) - s.crew.length;
+}
+export function nextFloor(s: State): (typeof FLOORS)[number] | null {
+  return s.floor + 1 < FLOORS.length ? FLOORS[s.floor + 1] : null;
+}
+export function buyFloor(s: State): boolean {
+  const nx = nextFloor(s);
+  if (!nx || s.caps < nx.cost) return false;
+  s.caps -= nx.cost;
+  s.floor += 1;
+  return true;
+}
+
 export function recruit(s: State, id: string, now: number): boolean {
   if (s.visitor !== id || s.crew.includes(id)) return false;
+  if (freeBeds(s) <= 0) return false; // 침대가 없다
   rollRelations(s, id);
   s.crew.push(id);
   s.aff[id] = 0;

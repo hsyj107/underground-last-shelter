@@ -652,6 +652,27 @@ export function resetRegistry(): void {
 }
 
 
+// ---------- 거주 구역 (층 확장) ----------
+
+export interface FloorDef {
+  name: string;
+  icon: string;
+  /** 이 층까지 열었을 때 받아 줄 수 있는 생존자 수(관리자 제외) */
+  cap: number;
+  /** 이 층을 여는 비용(뚜껑) */
+  cost: number;
+  blurb: string;
+}
+
+/** 아래로 파 내려가며 열리는 거주 구역. 숫자는 시험용 */
+export const FLOORS: FloorDef[] = [
+  { name: '지하 7층 · 휴게실', icon: '🛏', cap: 4, cost: 0, blurb: '매장 창고 뒤 휴게실. 접이식 침대 네 개가 전부다.' },
+  { name: '지하 8층 · 숙소', icon: '🏠', cap: 9, cost: 350, blurb: '비상 계단 아래를 뚫어 만든 이층 침대 방. 코 고는 소리가 벽을 타고 올라온다.' },
+  { name: '지하 9층 · 대형 숙소', icon: '🏘', cap: 15, cost: 900, blurb: '옛 주차장 일부를 막아 칸을 나눴다. 사생활이 조금 생긴다.' },
+  { name: '지하 10층 · 심층 구역', icon: '🏢', cap: 22, cost: 2000, blurb: '배관과 환풍구가 지나가는 깊은 층. 따뜻하지만 공기가 무겁다.' },
+  { name: '지하 11층 · 요새', icon: '🏰', cap: 30, cost: 4500, blurb: '두꺼운 격벽 안쪽. 이제는 벙커라기보다 작은 마을이다.' },
+];
+
 // ---------- 개조 ----------
 
 export type UpgKey = 'farm' | 'water' | 'store' | 'pack' | 'radio' | 'gen';
