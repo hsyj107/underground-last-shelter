@@ -38,7 +38,7 @@ test('데이터 무결성: 아이템/모양/구역', () => {
   for (const s of PROFS) {
     assert.equal(s.chapters.length, 3);
     assert.ok(s.lastWords.length >= 3, `${s.id} 유언`);
-    for (const k of ['str', 'agi', 'med'] as const) assert.ok(s.range[k][0] >= 1 && s.range[k][1] <= 10 && s.range[k][0] <= s.range[k][1]);
+    for (const k of ['str', 'agi', 'med', 'cha'] as const) assert.ok(s.range[k][0] >= 1 && s.range[k][1] <= 10 && s.range[k][0] <= s.range[k][1]);
   }
   for (const z of ZONES) assert.ok(z.unlock <= ITEMS.length);
 });
@@ -233,9 +233,9 @@ test('분류 완성 보너스와 전체 완성 보너스', () => {
 test('판매와 개조', () => {
   const s = g.newState('a', 0);
   s.items['m_serum'] = 2;
-  assert.equal(g.sellItem(s, 'm_serum'), 100);
+  assert.equal(g.sellItem(s, 'm_serum', 0), 100);
   assert.equal(s.items['m_serum'], 1);
-  assert.equal(g.sellItem(s, 'f_tuna'), 0);
+  assert.equal(g.sellItem(s, 'f_tuna', 0), 0);
   const c0 = UPGRADES.shelf.base;
   s.caps = c0 - 1;
   assert.ok(!g.buyUpgrade(s, 'shelf'));
@@ -322,4 +322,70 @@ test('죽은 직업은 다시 후보가 된다 (새 얼굴, 새 이름으로)', 
   assert.equal(fresh.prof, 'cook');
   assert.notEqual(fresh.id, old);
   assert.notEqual(fresh.name, s.people[old].name);
+});
+
+test('매력: 매장에 있는 가장 매력적인 사람이 판매가를 올린다', () => {
+  const s = g.newState('a', 0);
+  assert.equal(g.sellPrice(s, 'm_serum', 0), 100);
+  const dj = join(s, 'dj');
+  assert.ok(s.people[dj].stats.cha >= 7);
+  const up = g.sellPrice(s, 'm_serum', 0);
+  assert.equal(up, Math.round(100 * (1 + 0.03 * s.people[dj].stats.cha)));
+  // 탐사 중이면 흥정해 줄 수 없다
+  s.exps.push({ id: 'x', zone: 'mart', members: [dj], start: 0, end: 1000, result: { items: [], caps: 0, caught: false, line: '', deaths: [] }, notified: false });
+  assert.equal(g.sellPrice(s, 'm_serum', 500), 100);
+});
+
+test('관계: 합류할 때 친함/불화가 정해지고 탐사에 영향을 준다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0);
+  const a = join(s, 'cook');
+  // 직접 관계 지정 후 효과 확인
+  const b = join(s, 'nurse');
+  const c = join(s, 'dev');
+  s.rel = {};
+  s.rel[g.relKey(a, b)] = 'friend';
+  s.rel[g.relKey(a, c)] = 'rival';
+  assert.equal(g.relOf(s, b, a), 'friend');
+  assert.deepEqual(g.relatives(s, a, 'friend'), [b]);
+  const bad = g.previewExpedition(s, 'megamart', [a, c]);
+  assert.equal(bad.rivals, 1);
+  delete s.rel[g.relKey(a, c)];
+  const neutral = g.previewExpedition(s, 'megamart', [a, c]);
+  assert.ok(bad.risk > neutral.risk); // 불화: 들킬 확률 증가
+  s.rel[g.relKey(a, c)] = 'rival';
+  const withFriend = g.previewExpedition(s, 'megamart', [a, b]);
+  assert.equal(withFriend.friends, 1);
+  assert.ok(g.deathChance(a, [a, b], s) < g.deathChance(a, [a, b])); // 친구: 사망 확률 감소
+});
+
+test('관계: 합류 시 관계가 확률적으로 생기고 저장된다', () => {
+  g.setRng(() => 0); // 항상 "친구" 구간
+  const s = g.newState('a', 0);
+  const a = join(s, 'cook');
+  for (const id of ['f_tuna', 'f_peach', 'f_beans', 'f_spam', 'f_ramen', 'f_snack']) s.found[id] = 1;
+  s.nextVisit = 0;
+  g.tick(s, 1);
+  const v = s.visitor!;
+  assert.ok(g.recruit(s, v, 2));
+  assert.equal(g.relOf(s, a, v), 'friend');
+  g.setRng(Math.random);
+});
+
+test('관계: 친구가 죽으면 남은 친구는 충격을 받는다', () => {
+  g.setRng(() => 0);
+  const s = g.newState('a', 0);
+  const kid = join(s, 'kid');
+  const cook = join(s, 'cook');
+  s.rel = { [g.relKey(kid, cook)]: 'friend' };
+  s.aff[cook] = 30;
+  s.found = Object.fromEntries(ITEMS.slice(0, 40).map((i) => [i.id, 1]));
+  const r = g.startExpedition(s, 'megamart', ['me', kid], 0);
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  const rep = g.claimExpedition(s, r.exp.id, r.exp.end);
+  assert.deepEqual(rep?.grief, [cook]);
+  assert.equal(s.aff[cook], 22);
+  assert.ok(g.isTired(s, cook, r.exp.end + 1));
+  g.setRng(Math.random);
 });

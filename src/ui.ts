@@ -43,7 +43,9 @@ import {
   previewExpedition,
   recruit,
   saveState,
+  relatives,
   sellItem,
+  sellPrice,
   startExpedition,
   talk,
   tapSurvivor,
@@ -403,7 +405,9 @@ function exploreHtml(): string {
             ? `<div class="pv"><span>⏱ ${timeText(pv.ms)}</span><span>🎒 전리품 ${pv.loot}개</span>
                <span class="${riskPct > 25 ? 'bad' : riskPct > 0 ? 'warn' : 'ok'}">⚠ 들킬 확률 ${riskPct}%</span>
                <span class="${deathPct >= 10 ? 'bad' : deathPct > 0 ? 'warn' : 'ok'}">☠ 누군가 죽을 확률 ${deathPct}%</span></div>
-               ${deathList ? `<p class="dim sm">들키면 죽을 확률: ${deathList}</p>` : ''}`
+               ${deathList ? `<p class="dim sm">들키면 죽을 확률: ${deathList}</p>` : ''}
+               ${pv.friends ? `<p class="dim sm">🤝 친한 사이가 함께 가서 서로 챙겨요 (사망 확률 -15%)</p>` : ''}
+               ${pv.rivals ? `<p class="warn sm">⚡ 사이 나쁜 두 사람이 함께 가요 (들킬 확률 +20%)</p>` : ''}`
             : '<div class="pv dim">함께 갈 사람을 골라 주세요.</div>'
         }
         <button class="btn primary wide" data-act="go" ${pv ? '' : 'disabled'}>출발하기</button></div>`;
@@ -550,6 +554,7 @@ function reportHtml(r: Report): string {
   return `<h2>${r.deaths.length ? '🕯 돌아오지 못한 사람이 있다' : r.caught ? '😱 간신히 도망쳐 왔다' : '🎒 탐사대 귀환!'}</h2>
     <p class="story">${z.icon} ${z.name} — ${r.line}</p>
     ${lost}
+    ${r.grief.length ? `<p class="dim sm">💔 친구를 잃은 ${r.grief.map((g) => SURV_BY_ID[g].name).join(', ')} — 한참 말이 없다. (호감도 -8, 잠시 쉼)</p>` : ''}
     <ul class="loot">${list}</ul>
     <p class="gain">● +${fmt(r.caps)}${r.bonusCaps ? ` <small>(+${fmt(r.bonusCaps)} ${r.firstClear ? '첫 탐사·' : ''}새 발견 보너스)</small>` : ''}</p>
     <button class="btn primary wide" data-act="close">선반에 올리기</button>`;
@@ -566,9 +571,9 @@ function itemModal(id: string): void {
        <ul class="lines"><li><span>분류</span><b>${CATS[d.cat].icon} ${CATS[d.cat].name}</b></li>
        <li><span>보유</span><b>${n}개</b></li>
        <li><span>진열 수입</span><b>+${fmt1(itemIncome(d.rarity, n))}/분</b></li>
-       <li><span>팔면</span><b>● ${RARITY[d.rarity].sell}</b></li></ul>
+       <li><span>팔면</span><b>● ${sellPrice(S, id, Date.now())}</b></li></ul>
        ${lovers.length ? `<p class="dim sm">💝 ${josa(lovers.join(', '), 'iga')} 아주 좋아해요.</p>` : ''}
-       <button class="btn wide" data-act="sell" data-id="${id}" ${n > 0 ? '' : 'disabled'}>1개 팔기 (● +${RARITY[d.rarity].sell})</button>`
+       <button class="btn wide" data-act="sell" data-id="${id}" ${n > 0 ? '' : 'disabled'}>1개 팔기 (● +${sellPrice(S, id, Date.now())})</button>`
     : `<p class="story">아직 찾지 못한 물건이에요.</p>
        <p class="dim sm">이런 곳에서 나올지도 몰라요: ${where.join(', ')}</p>`;
   openModal(
@@ -587,6 +592,7 @@ function survModal(id: string): void {
   if (!isMe) {
     h += `<p class="statline">${(Object.keys(STAT_NAME) as (keyof typeof STAT_NAME)[]).map((k) => `<span>${STAT_NAME[k]} <b>${d.stats[k]}</b></span>`).join('')}</p>
       <p class="buffline">✨ ${d.buff.text}${buffScale(S, id) > 1 ? ' <b>(3장 완료: ×1.5)</b>' : ''}</p>
+      ${relHtml(id)}
       <div class="aff big"><span class="bar"><i style="width:${a}%"></i>${CHAPTER_AFF.map((t) => `<u style="left:${t}%"></u>`).join('')}</span><span>호감도 ${a}/100</span></div>
       <div class="stories">`;
     d.chapters.forEach((text, i) => {
@@ -605,6 +611,14 @@ function survModal(id: string): void {
   }
   h += `<button class="btn wide" data-act="close">닫기</button>`;
   openModal('surv', h);
+}
+
+function relHtml(id: string): string {
+  const f = relatives(S, id, 'friend').filter((x) => S.crew.includes(x));
+  const r = relatives(S, id, 'rival').filter((x) => S.crew.includes(x));
+  if (!f.length && !r.length) return '<p class="dim sm">아직 특별히 가깝거나 껄끄러운 사람이 없어요.</p>';
+  const chip = (x: string, cls: string): string => `<span class="rel ${cls}">${pt(x, 'pt xs')}${SURV_BY_ID[x].name}</span>`;
+  return `<div class="rels">${f.length ? `<div><b>🤝 친한 사이</b>${f.map((x) => chip(x, 'friend')).join('')}</div>` : ''}${r.length ? `<div><b>⚡ 사이 나쁨</b>${r.map((x) => chip(x, 'rival')).join('')}</div>` : ''}</div>`;
 }
 
 function giftModal(id: string): void {
@@ -733,7 +747,7 @@ function onClick(e: Event): void {
       itemModal(id);
       break;
     case 'sell': {
-      const got = sellItem(S, id);
+      const got = sellItem(S, id, now);
       if (got) {
         saveState(S);
         toast(`● +${got}`, 'warm');

@@ -185,13 +185,14 @@ export interface SurvDef {
 
 export const CHAPTER_AFF = [20, 50, 100];
 
-/** 능력치: 전투(싸움·버티기), 수색(물건 찾기), 의료(치료) — 1~10 */
+/** 능력치: 전투(싸움·버티기), 수색(물건 찾기), 의료(치료), 매력(거래·협상) — 1~10 */
 export interface Stats {
   str: number;
   agi: number;
   med: number;
+  cha: number;
 }
-export const STAT_NAME: Record<keyof Stats, string> = { str: '전투', agi: '수색', med: '의료' };
+export const STAT_NAME: Record<keyof Stats, string> = { str: '전투', agi: '수색', med: '의료', cha: '매력' };
 
 /** 저장되는 개인 정보. 직업(prof)에서 나머지가 정해진다 */
 export interface Person {
@@ -235,7 +236,7 @@ export const PLAYER: SurvDef = {
   chapters: ['', '', ''],
   chat: ['오늘도 셔터를 올린다.', '선반이 비어 있으면 마음도 비는 법.', '손님이 와야 장사가 되는데…'],
   prof: 'me',
-  stats: { str: 3, agi: 3, med: 3 },
+  stats: { str: 3, agi: 3, med: 3, cha: 4 },
 };
 
 export const SKINS = ['#f4d4b0', '#f0c8a0', '#e8c098', '#e0b088', '#d0a078'];
@@ -252,7 +253,7 @@ export const PROFS: ProfDef[] = [
     id: 'cook', title: '전직 해장국집 사장',
     look: { skin: '#f0c8a0', hair: '#4a3022', style: 'bun', top: '#d8d0c0', top2: '#f4efe4', pants: '#4a5a6a', shoes: '#5a4a3a', acc: ['chefhat', 'apron'] },
     styles: ['bun', 'short'],
-    range: { str: [2, 5], agi: [3, 6], med: [1, 4] }, names: 'person',
+    range: { str: [2, 5], agi: [3, 6], med: [1, 4], cha: [3, 6] }, names: 'person',
     buff: { kind: 'store_cat', cat: 'food', value: 0.4, text: '매장에 있으면 식료품 수입 +40%' },
     likes: { items: ['f_ramen', 'f_coffee'], cat: 'food' },
     unlock: { type: 'start' }, hint: '곧 누군가 문을 두드린다.',
@@ -268,7 +269,7 @@ export const PROFS: ProfDef[] = [
   {
     id: 'dev', title: '밤샘 코딩하던 개발자',
     look: { skin: '#f4d4b0', hair: '#2a2a3a', style: 'short', top: '#4a4a5a', top2: '#3a3a48', pants: '#2f3a4a', shoes: '#e8e8e8', acc: ['hood', 'glasses'] },
-    range: { str: [1, 3], agi: [5, 9], med: [1, 3] }, names: 'person',
+    range: { str: [1, 3], agi: [5, 9], med: [1, 3], cha: [1, 4] }, names: 'person',
     buff: { kind: 'store_cat', cat: 'tech', value: 0.4, text: '매장에 있으면 전자기기 수입 +40%' },
     likes: { items: ['t_game', 't_laptop'], cat: 'tech' },
     unlock: { type: 'found', n: 6 }, hint: '도감을 6종 채우면 찾아온다.',
@@ -285,7 +286,7 @@ export const PROFS: ProfDef[] = [
     id: 'soldier', title: '은퇴한 특수부대 원사',
     look: { skin: '#e0b088', hair: '#5a5a5a', style: 'short', top: '#5a6a3a', top2: '#4a5a2a', pants: '#4a5a2a', shoes: '#2a2a22', acc: ['beret', 'scar', 'camo'] },
     hairs: ['#5a5a5a', '#3a3a3a', '#8a8a8a'],
-    range: { str: [8, 10], agi: [3, 6], med: [2, 5] }, names: 'person',
+    range: { str: [8, 10], agi: [3, 6], med: [2, 5], cha: [1, 4] }, names: 'person',
     buff: { kind: 'exp_guard', value: 0.6, text: '탐사대에 있으면 들킬 확률 -60%, 전리품 +1' },
     likes: { items: ['f_choco', 't_light'], cat: 'daily' },
     unlock: { type: 'exp', n: 3 }, hint: '탐사를 3번 다녀오면 찾아온다.',
@@ -301,7 +302,7 @@ export const PROFS: ProfDef[] = [
   {
     id: 'cat', title: '길고양이 · 계산대 위의 주인',
     look: { skin: '#e8944a', hair: '#c86a2a', style: 'short', top: '#e8944a', top2: '#c86a2a', pants: '#e8944a', shoes: '#e8944a', acc: [], cat: true },
-    range: { str: [1, 2], agi: [6, 9], med: [1, 1] }, names: 'cat',
+    range: { str: [1, 2], agi: [6, 9], med: [1, 1], cha: [5, 8] }, names: 'cat',
     buff: { kind: 'exp_luck', value: 0.8, text: '탐사대에 있으면 희귀·전설 발견 확률 +80%' },
     likes: { items: ['p_churu', 'p_food'], cat: 'pet' },
     unlock: { type: 'item', id: 'p_food' }, hint: '고양이 사료를 발견하면 냄새를 맡고 온다.',
@@ -318,7 +319,7 @@ export const PROFS: ProfDef[] = [
     id: 'nurse', title: '종합병원 야간 간호사',
     look: { skin: '#f4d4b0', hair: '#3a2a2a', style: 'long', top: '#78b8c8', top2: '#5898a8', pants: '#78b8c8', shoes: '#f4efe4', acc: ['nursecap'] },
     styles: ['long', 'bun'],
-    range: { str: [1, 4], agi: [2, 5], med: [7, 10] }, names: 'person',
+    range: { str: [1, 4], agi: [2, 5], med: [7, 10], cha: [4, 7] }, names: 'person',
     buff: { kind: 'store_cat', cat: 'medical', value: 0.4, text: '매장에 있으면 의약품 수입 +40%' },
     likes: { items: ['m_vita', 'f_coffee'], cat: 'medical' },
     unlock: { type: 'cat', cat: 'medical', n: 3 }, hint: '의약품을 3종 발견하면 찾아온다.',
@@ -335,7 +336,7 @@ export const PROFS: ProfDef[] = [
     id: 'comic', title: '40년차 만화방 주인',
     look: { skin: '#e8c098', hair: '#e8e8e8', style: 'short', top: '#8a6a4a', top2: '#7a5a3a', pants: '#4a4a4a', shoes: '#3a2a22', acc: ['beard', 'cane'] },
     hairs: ['#e8e8e8', '#d0d0d0'],
-    range: { str: [1, 3], agi: [2, 5], med: [1, 3] }, names: 'old',
+    range: { str: [1, 3], agi: [2, 5], med: [1, 3], cha: [2, 5] }, names: 'old',
     buff: { kind: 'store_cat', cat: 'culture', value: 0.4, text: '매장에 있으면 문화 수입 +40%' },
     likes: { items: ['c_vol4', 'c_comic'], cat: 'culture' },
     unlock: { type: 'cat', cat: 'culture', n: 3 }, hint: '문화 물건을 3종 발견하면 찾아온다.',
@@ -352,7 +353,7 @@ export const PROFS: ProfDef[] = [
     id: 'dj', title: '심야 라디오 DJ',
     look: { skin: '#e8c098', hair: '#6a3a8a', style: 'long', top: '#3a3a5a', top2: '#e84a8a', pants: '#2a2a3a', shoes: '#e84a8a', acc: ['headphones'] },
     hairs: ['#6a3a8a', '#e84a8a', '#2a6a8a'],
-    range: { str: [1, 3], agi: [3, 6], med: [1, 3] }, names: 'person',
+    range: { str: [1, 3], agi: [3, 6], med: [1, 3], cha: [7, 10] }, names: 'person',
     buff: { kind: 'store_all', value: 0.1, text: '매장에 있으면 전체 수입 +10%' },
     likes: { items: ['t_radio', 'c_lp', 'c_tape'], cat: 'culture' },
     unlock: { type: 'item', id: 't_radio' }, hint: '작동하는 라디오를 발견하면 찾아온다.',
@@ -368,7 +369,7 @@ export const PROFS: ProfDef[] = [
   {
     id: 'kid', title: '구슬과 병뚜껑을 모으는 아홉 살',
     look: { skin: '#f4d4b0', hair: '#4a2a1a', style: 'tuft', top: '#e8c040', top2: '#d8a830', pants: '#4a78b8', shoes: '#e84a4a', acc: [], kid: true },
-    range: { str: [1, 2], agi: [5, 8], med: [1, 1] }, names: 'kid',
+    range: { str: [1, 2], agi: [5, 8], med: [1, 1], cha: [5, 8] }, names: 'kid',
     buff: { kind: 'exp_loot', value: 1, text: '탐사대에 있으면 전리품 +1, 처음 발견한 물건의 뚜껑 보너스 2배' },
     likes: { items: ['f_choco', 'p_toy', 'f_snack'], cat: 'food' },
     unlock: { type: 'crew', n: 4 }, hint: '생존자가 4명 모이면 누군가 따라온다.',

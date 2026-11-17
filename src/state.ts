@@ -59,6 +59,8 @@ export interface Expedition {
 
 export interface State {
   v: 2;
+  /** 두 사람 사이의 관계. 키는 정렬한 id 두 개를 | 로 이은 것. 없으면 그냥 아는 사이 */
+  rel: Record<string, 'friend' | 'rival'>;
   /** 지금까지 만난 모든 사람(죽은 사람 포함) */
   people: Record<string, Person>;
   dead: Grave[];
@@ -96,6 +98,7 @@ export function newState(name: string, now: number): State {
   resetRegistry();
   return {
     v: 2,
+    rel: {},
     people: {},
     dead: [],
     nextPid: 1,
@@ -282,6 +285,7 @@ export function makePerson(s: State, prof: ProfDef): Person {
     str: randInt(...prof.range.str),
     agi: randInt(...prof.range.agi),
     med: randInt(...prof.range.med),
+    cha: randInt(...prof.range.cha),
   };
   const look: Look = { ...prof.look, acc: [...prof.look.acc] };
   if (!look.cat) {
@@ -293,6 +297,36 @@ export function makePerson(s: State, prof: ProfDef): Person {
   s.people[id] = person;
   registerPerson(person);
   return person;
+}
+
+export function relKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+export function relOf(s: State, a: string, b: string): 'friend' | 'rival' | null {
+  return s.rel[relKey(a, b)] ?? null;
+}
+/** 한 사람과 특정 관계인 모든 id */
+export function relatives(s: State, id: string, kind: 'friend' | 'rival'): string[] {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(s.rel)) {
+    if (v !== kind) continue;
+    const [x, y] = k.split('|');
+    if (x === id) out.push(y);
+    else if (y === id) out.push(x);
+  }
+  return out;
+}
+
+/** 새로 합류한 사람과 기존 식구들 사이의 관계를 정한다. 매력이 높을수록 친구가 잘 생긴다. */
+function rollRelations(s: State, id: string): void {
+  const cha = s.people[id]?.stats.cha ?? 3;
+  for (const other of s.crew) {
+    if (other === id) continue;
+    const r = rng();
+    const pFriend = 0.2 + 0.03 * cha;
+    if (r < pFriend) s.rel[relKey(id, other)] = 'friend';
+    else if (r < pFriend + 0.15) s.rel[relKey(id, other)] = 'rival';
+  }
 }
 
 /** 지금 살아서 합류해 있거나 문 앞에 서 있는 직업 */
@@ -322,6 +356,7 @@ export function unlockMet(s: State, u: Unlock): boolean {
 
 export function recruit(s: State, id: string, now: number): boolean {
   if (s.visitor !== id || s.crew.includes(id)) return false;
+  rollRelations(s, id);
   s.crew.push(id);
   s.aff[id] = 0;
   s.visitor = null;
@@ -344,14 +379,20 @@ export interface Preview {
   deathIf: Record<string, number>;
   /** 이번 탐사에서 누군가 죽을 확률 */
   anyDeath: number;
+  /** 같이 가는 사람들 사이의 친한 짝/불화 짝 수 */
+  friends: number;
+  rivals: number;
 }
 
 /** 들켰을 때 죽을 확률. 전투가 세면 낮고, 팀에 의료 능력치가 높은 사람이 있으면 더 낮다. */
-export function deathChance(id: string, members: string[]): number {
+export function deathChance(id: string, members: string[], s?: State): number {
   const d = SURV_BY_ID[id];
   if (!d || id === 'me') return 0;
   const medic = Math.max(0, ...members.map((m) => SURV_BY_ID[m]?.stats.med ?? 0));
-  return Math.max(0.03, (0.5 - 0.04 * d.stats.str) * (1 - Math.min(0.4, 0.04 * medic)));
+  let p = Math.max(0.03, (0.5 - 0.04 * d.stats.str) * (1 - Math.min(0.4, 0.04 * medic)));
+  // 친한 사람이 같이 가면 서로 챙긴다
+  if (s && members.some((m) => m !== id && relOf(s, id, m) === 'friend')) p *= 0.85;
+  return p;
 }
 
 export function previewExpedition(s: State, zoneId: string, members: string[]): Preview {
@@ -369,14 +410,24 @@ export function previewExpedition(s: State, zoneId: string, members: string[]): 
     }
     if (d.buff.kind === 'exp_loot') loot += Math.round(d.buff.value * buffScale(s, id));
   }
-  const risk = Math.min(0.5, Math.max(0, (zone.D - power) * 0.12)) * guard;
+  let friends = 0;
+  let rivals = 0;
+  for (let i = 0; i < members.length; i++) {
+    for (let j = i + 1; j < members.length; j++) {
+      const r = relOf(s, members[i], members[j]);
+      if (r === 'friend') friends++;
+      else if (r === 'rival') rivals++;
+    }
+  }
+  // 불화인 두 사람이 같이 가면 손발이 안 맞아 들킬 확률이 오른다
+  const risk = Math.min(0.5, Math.max(0, (zone.D - power) * 0.12) * guard * (1 + 0.2 * rivals));
   const deathIf: Record<string, number> = {};
   let safe = 1;
   for (const id of members) {
-    deathIf[id] = deathChance(id, members);
+    deathIf[id] = deathChance(id, members, s);
     safe *= 1 - risk * deathIf[id];
   }
-  return { ms: expeditionMs(s, zone), risk, loot, power, deathIf, anyDeath: 1 - safe };
+  return { ms: expeditionMs(s, zone), risk, loot, power, deathIf, anyDeath: 1 - safe, friends, rivals };
 }
 
 function luckOf(s: State, members: string[]): number {
@@ -466,6 +517,8 @@ export interface Report {
   chapters: { id: string; chapter: number }[];
   rewards: number;
   deaths: { id: string; name: string; title: string; last: string }[];
+  /** 친구를 잃고 충격받은 사람들 */
+  grief: string[];
 }
 
 export function claimExpedition(s: State, expId: string, now: number): Report | null {
@@ -508,6 +561,15 @@ export function claimExpedition(s: State, expId: string, now: number): Report | 
     deaths.push({ id: dd.id, name: d.name, title: d.title, last: dd.last });
   }
   const gone = new Set(deaths.map((d) => d.id));
+  const grief = new Set<string>();
+  for (const d of deaths) {
+    for (const f of relatives(s, d.id, 'friend')) {
+      if (!s.crew.includes(f) || gone.has(f)) continue;
+      grief.add(f);
+      s.aff[f] = Math.max(0, affinity(s, f) - 8);
+      s.tired[f] = Math.max(s.tired[f] ?? 0, now + ms(180000));
+    }
+  }
   const chapters: Report['chapters'] = [];
   let rewards = 0;
   for (const m of e.members) {
@@ -516,7 +578,7 @@ export function claimExpedition(s: State, expId: string, now: number): Report | 
     r.chapters.forEach((c) => chapters.push({ id: m, chapter: c }));
     rewards += r.reward;
   }
-  return { zone: e.zone, items, caps: e.result.caps, bonusCaps, caught: e.result.caught, line: e.result.line, firstClear, chapters, rewards, deaths };
+  return { zone: e.zone, items, caps: e.result.caps, bonusCaps, caught: e.result.caught, line: e.result.line, firstClear, chapters, rewards, deaths, grief: [...grief] };
 }
 
 // ---------- 호감도 · 대화 · 선물 ----------
@@ -601,11 +663,19 @@ export function gift(s: State, id: string, itemId: string): GiftResult {
 
 // ---------- 판매 · 개조 ----------
 
-export function sellItem(s: State, itemId: string): number {
+/** 매장에 있는 사람 중 가장 매력적인 사람이 흥정해 준다 (점장 제외, 매력 1점당 +3%) */
+export function sellPrice(s: State, itemId: string, now: number): number {
+  const it = ITEM_BY_ID[itemId];
+  if (!it) return 0;
+  const cha = Math.max(0, ...homeCrew(s, now).filter((id) => id !== 'me').map((id) => SURV_BY_ID[id]?.stats.cha ?? 0));
+  return Math.round(RARITY[it.rarity].sell * (1 + 0.03 * cha));
+}
+
+export function sellItem(s: State, itemId: string, now: number): number {
   const it = ITEM_BY_ID[itemId];
   if (!it || (s.items[itemId] ?? 0) < 1) return 0;
+  const price = sellPrice(s, itemId, now);
   s.items[itemId] -= 1;
-  const price = RARITY[it.rarity].sell;
   s.caps += price;
   return price;
 }
