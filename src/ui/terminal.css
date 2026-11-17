@@ -626,23 +626,13 @@ input[type='text']:focus {
   transform-origin: 50% 100%;
   filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
 }
-/* 그림 줄(5프레임)을 겹쳐 두고 동작에 따라 하나만 보인다 */
 .fig .spr {
   position: absolute;
   inset: 0;
-  display: none;
   background-repeat: no-repeat;
-  background-size: 500% 100%;
-  background-position: 0 0;
+  background-size: 100% 100%;
   image-rendering: pixelated;
 }
-.fig .spr.front { display: block; }
-.sv.walk .fig .spr.front, .sv.climb .fig .spr.front { display: none; }
-.sv.walk .fig .spr.side { display: block; animation: frames 0.6s steps(5) infinite; }
-.sv.climb .fig .spr.back { display: block; animation: frames 0.8s steps(5) infinite; }
-@keyframes frames { from { background-position-x: 0; } to { background-position-x: 125%; } }
-/* 옆모습 그림은 왼쪽을 본다 */
-.sv[data-d='1'] .fig { transform: scaleX(-1); }
 .sv .nm {
   position: absolute;
   left: 50%;
@@ -671,7 +661,7 @@ input[type='text']:focus {
 
 /* 동작: 걷기 / 사다리 / 일하기 / 잠 / 쓰러짐 */
 .sv.walk .fig {
-  animation: none;
+  animation: step 0.3s steps(2) infinite;
 }
 .sv.climb .fig {
   animation: climb 0.5s steps(2) infinite;
@@ -1067,7 +1057,7 @@ h2::before { color: var(--gold); }
 .ava .fig {
   position: absolute;
   left: 50%;
-  top: -17px;
+  top: -7px;
   transform: translateX(-50%);
   filter: none;
 }
