@@ -680,6 +680,13 @@ const JOB_OUTFIT: Record<string, { top2: string; pants: string; shoes: string; a
   clerk: { top2: '#8a8a96', pants: '#4a4a54', shoes: '#2a2a2a', acc: ['badge'] },
 };
 
+/** #rrggbb 색을 k배로 어둡게(k<1)/밝게 */
+function shade(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const c = (v: number): string => Math.max(0, Math.min(255, Math.round(v * k))).toString(16).padStart(2, '0');
+  return `#${c((n >> 16) & 255)}${c((n >> 8) & 255)}${c(n & 255)}`;
+}
+
 function ccLook(): Look {
   const o = ORIGIN_BY_ID[cc.origin];
   const jo = JOB_OUTFIT[cc.job] ?? JOB_OUTFIT.clerk;
@@ -690,7 +697,8 @@ function ccLook(): Look {
     hair: cc.hair,
     style: cc.style,
     top: cc.top,
-    top2: jo.top2,
+    // 소매는 고른 윗옷 색을 따른다 (가운을 입는 의료인만 흰 소매)
+    top2: jo.acc.includes('labcoat') ? jo.top2 : shade(cc.top, 0.82),
     pants: jo.pants,
     shoes: jo.shoes,
     f: cc.gender === 'f',
