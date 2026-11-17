@@ -254,9 +254,10 @@ export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, o: Pose
         rect(4, 6 + hb, 4, 1, look.hair);
         break;
       case 'cross':
-        rect(5, 8 + bob, 2, 1, '#e04a4a');
-        rect(5, 8 + bob, 1, 1, '#e04a4a');
-        rect(5, 9 + bob, 2, 1, '#e04a4a');
+        // 흰 바탕에 1칸 두께의 빨간 십자
+        rect(3, 8 + bob, 5, 4, '#f4efe4');
+        rect(5, 8 + bob, 1, 4, '#d83a3a');
+        rect(3, 9 + bob, 5, 1, '#d83a3a');
         break;
       case 'tie':
         rect(5, 7 + bob, 2, 1, '#f4efe4');
