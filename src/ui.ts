@@ -7,17 +7,17 @@ import {
   ITEM_BY_ID,
   RARITY,
   PROFS,
+  RES,
   STAT_NAME,
   SURV_BY_ID,
   UPGRADES,
   ZONES,
   ZONE_BY_ID,
 } from './data.ts';
-import type { Cat, UpgKey } from './data.ts';
+import type { Cat, ResKey, UpgKey } from './data.ts';
 import { Scene } from './scene.ts';
 import {
   affinity,
-  allComplete,
   availableCrew,
   awaySet,
   buffScale,
@@ -28,15 +28,21 @@ import {
   chapterReached,
   claimExpedition,
   clearState,
+  RATIONS,
+  effectiveRation,
+  resolveCrisis,
+  setRation,
+  weakestId,
   config,
   dayNumber,
   foundCount,
   gift,
   homeCrew,
-  incomeBreakdown,
+  heads,
   isTired,
   isZoneOpen,
-  itemIncome,
+  flow,
+  minutesLeft,
   loadState,
   newState,
   offlineCapMs,
@@ -79,7 +85,7 @@ function josa(word: string, kind: 'iga' | 'eunneun' | 'eulreul' | 'euro'): strin
   }
 }
 const fmt = (n: number): string => Math.floor(n).toLocaleString('en-US');
-const fmt1 = (n: number): string => (Math.round(n * 10) / 10).toLocaleString('en-US');
+const fmt2 = (n: number): string => (Math.round(n * 100) / 100).toString();
 
 function timeText(ms: number): string {
   const sec = Math.max(0, Math.ceil(ms / 1000));
@@ -124,14 +130,14 @@ export function startApp(root: HTMLElement): void {
 
   const loaded = loadState();
   const now = Date.now();
-  let offline: { ms: number; caps: number } | null = null;
+  let offline: { ms: number; food: number; water: number } | null = null;
   let events: GameEvent[] = [];
   if (loaded) {
     S = loaded;
-    const before = S.caps;
+    const before = { ...S.res };
     const gap = now - S.last;
     events = tick(S, now);
-    if (gap > 120000) offline = { ms: gap, caps: S.caps - before };
+    if (gap > 120000) offline = { ms: gap, food: S.res.food - before.food, water: S.res.water - before.water };
   } else {
     S = newState('점장', now);
   }
@@ -167,8 +173,9 @@ export function startApp(root: HTMLElement): void {
   renderAll();
   if (!loaded) openIntro();
   else {
-    if (offline) openOffline(offline.ms, offline.caps);
+    if (offline) openOffline(offline.ms, offline.food, offline.water);
     handleEvents(events);
+    if (S.crisis && modalKind === null) openCrisis();
   }
 
   setInterval(step, 1000);
@@ -184,6 +191,7 @@ function step(): void {
   if (!S || modalKind === 'intro') return;
   const events = tick(S, Date.now());
   if (events.length) handleEvents(events);
+  if (S.crisis && modalKind === null) openCrisis();
   updateHud();
   updateLive();
 }
@@ -191,6 +199,7 @@ function step(): void {
 function handleEvents(events: GameEvent[]): void {
   for (const e of events) {
     if (e.type === 'visitor') toast('🚪 누군가 문을 두드린다…', 'warm');
+    if (e.type === 'crisis') toast('⚠ 굶주림이 한계에 달했다…', 'bad');
     if (e.type === 'exp_done') toast(`🎒 ${ZONE_BY_ID[e.zone].name} 탐사대가 돌아왔다!`, 'good');
   }
   if (events.length) {
@@ -245,7 +254,9 @@ function updateHud(): void {
   $('#hud-day').textContent = `DAY ${dayNumber(S, now)}`;
   $('#hud-name').textContent = `B7 · ${S.name === '점장' ? '점장' : `${S.name} 점장`}`;
   $('#hud-caps').textContent = fmt(S.caps);
-  $('#hud-rate').textContent = `+${fmt1(incomeBreakdown(S, now).perMin)}/분`;
+  const lowF = (minutesLeft(S, now, 'food') ?? 9999) < 60 || S.res.food <= 0;
+  const lowW = (minutesLeft(S, now, 'water') ?? 9999) < 60 || S.res.water <= 0;
+  $('#hud-rate').innerHTML = `<span class="${lowF ? 'low' : ''}">🍞 ${fmt(S.res.food)}</span> <span class="${lowW ? 'low' : ''}">💧 ${fmt(S.res.water)}</span>`;
 }
 
 function readyExps(now = Date.now()): number {
@@ -305,14 +316,13 @@ function pt(id: string, cls = 'pt', silhouette = false): string {
 
 function homeHtml(): string {
   const now = Date.now();
-  const inc = incomeBreakdown(S, now);
   let h = '';
 
   if (S.stats.expeditions === 0 && S.exps.length === 0) {
     h += `<section class="card tip"><h3>💡 처음이라면</h3>
       <p>1. <b>탐사</b> 탭에서 '동네 슈퍼마트'로 점장을 보내 보세요.<br>
-      2. 돌아온 배낭을 열면 물건이 <b>선반</b>에 진열되고, 뚜껑(●)이 계속 쌓입니다.<br>
-      3. 물건이 늘면 새 생존자들이 문을 두드려요.</p></section>`;
+      2. 돌아온 배낭을 열면 식량·물·약이 <b>비축</b>에 더해지고, 물건은 <b>선반</b> 도감에 채워집니다.<br>
+      3. 사람이 늘수록 더 많이 먹어요. 비축이 바닥나면 누군가를 내보내야 할 수도 있어요.</p></section>`;
   }
 
   h += `<section class="card"><h3>🎒 탐사 현황</h3>`;
@@ -334,22 +344,7 @@ function homeHtml(): string {
   }
   h += `</section>`;
 
-  h += `<section class="card"><h3>● 분당 수입 <b class="big">+${fmt1(inc.perMin)}</b></h3><ul class="lines">`;
-  h += `<li><span>🏪 단골 손님</span><b>+${inc.base}</b></li>`;
-  for (const c of CAT_ORDER) {
-    const row = inc.byCat[c];
-    if (row.sum <= 0) continue;
-    const notes: string[] = [];
-    if (row.buff > 0) notes.push(`생존자 +${Math.round(row.buff * 100)}%`);
-    if (row.complete) notes.push('완성 +25%');
-    h += `<li><span>${CATS[c].icon} ${CATS[c].name}${notes.length ? ` <em>${notes.join(' · ')}</em>` : ''}</span><b>+${fmt1(row.sum * row.mult)}</b></li>`;
-  }
-  const mults: string[] = [];
-  if (inc.shelfMult > 1) mults.push(`개조 ×${fmt1(inc.shelfMult)}`);
-  if (inc.allMult > 1) mults.push(`분위기 ×${fmt1(inc.allMult)}`);
-  if (allComplete(S)) mults.push('도감 완성 ×1.5');
-  if (mults.length) h += `<li class="mult"><span>${mults.join(' · ')}</span><b></b></li>`;
-  h += `</ul><p class="dim sm">자리를 비워도 최대 ${Math.round(offlineCapMs(S) / 3600000)}시간 치 수입이 쌓여요.</p></section>`;
+  h += supplyHtml(now);
 
   h += `<section class="card"><h3>🛠 개조</h3>`;
   (Object.keys(UPGRADES) as UpgKey[]).forEach((k) => {
@@ -363,6 +358,36 @@ function homeHtml(): string {
     </div>`;
   });
   h += `</section>`;
+  return h;
+}
+
+function resRow(k: ResKey, now: number): string {
+  const f = flow(S, now);
+  const cap = k === 'med' ? 60 : f.cap;
+  const v = S.res[k];
+  let rate = '';
+  let left = '';
+  if (k !== 'med') {
+    const net = f.prod[k] - f.cons[k];
+    rate = `<small class="${net < 0 ? 'bad' : 'ok'}">+${fmt2(f.prod[k])} −${fmt2(f.cons[k])} /분</small>`;
+    const m = minutesLeft(S, now, k);
+    left = m === null ? '' : v <= 0 ? '<em class="bad">바닥남</em>' : `<em class="${m < 60 ? 'bad' : 'warn'}">${timeText(m * 60000)} 뒤 바닥</em>`;
+  } else rate = '<small>탐사로만 얻어요 · 다친 사람 치료에 써요</small>';
+  return `<li><span>${RES[k].icon} ${RES[k].name} <b>${fmt(v)}</b><small>/${cap}</small> ${left}</span>${rate}<div class="bar res-${k}"><i style="width:${Math.min(100, (v / cap) * 100)}%"></i></div></li>`;
+}
+
+function supplyHtml(now: number): string {
+  const eff = effectiveRation(S);
+  let h = `<section class="card"><h3>📦 비축 <small>${heads(S)}명이 먹고 마셔요</small></h3><ul class="res">`;
+  h += (['food', 'water', 'med'] as ResKey[]).map((k) => resRow(k, now)).join('');
+  h += `</ul>`;
+  if (eff !== S.ration) h += `<p class="warn sm">⚠ 물자가 바닥나서 극한 절식 중이에요. 탐사 사망 확률이 오르고 호감을 얻기 어려워요.</p>`;
+  h += `<div class="rations">`;
+  (Object.keys(RATIONS) as (keyof typeof RATIONS)[]).forEach((k) => {
+    h += `<button class="chip ${S.ration === k ? 'on' : ''}" data-act="ration" data-id="${k}">${RATIONS[k].icon} ${RATIONS[k].name}</button>`;
+  });
+  h += `</div><p class="dim sm">${RATIONS[S.ration].text}</p>`;
+  h += `<p class="dim sm">자리를 비워도 벙커는 최대 ${Math.round(offlineCapMs(S) / 3600000)}시간까지 돌아가요.</p></section>`;
   return h;
 }
 
@@ -428,7 +453,7 @@ function shelfHtml(): string {
     const t = catTotal(c);
     h += `<span class="cs ${catComplete(S, c) ? 'done' : ''}">${CATS[c].icon} ${f}/${t}${catComplete(S, c) ? ' ✓' : ''}</span>`;
   }
-  h += `</div><p class="dim sm">분류를 모두 채우면 그 분류 수입 +25%, 전부 채우면 전체 ×1.5! 같은 물건을 여러 개 모으면 수입이 조금씩(+10%) 늘어요(최대 5개).</p></section>`;
+  h += `</div><p class="dim sm">분류를 모두 채우면 벙커에 효과가 생겨요. 🍞식료품: 식량 생산 +25% · 🧴생활: 식수 생산 +25% · 💊의약품: 탐사 사망 -10% · 🔌전자: 탐사 시간 -10% · 📚문화: 대화 호감 +25% · 🐾반려: 전리품 +1</p></section>`;
   h += `<div class="filters"><button class="chip sm ${shelfCat === 'all' ? 'on' : ''}" data-act="cat" data-c="all">전체</button>`;
   for (const c of CAT_ORDER) h += `<button class="chip sm ${shelfCat === c ? 'on' : ''}" data-act="cat" data-c="${c}">${CATS[c].icon}</button>`;
   h += `</div><div class="grid">`;
@@ -473,7 +498,7 @@ function crewHtml(): string {
     h += `<section class="card grave"><h3>🪦 추모비 <b class="big">${S.dead.length}</b></h3><ul class="graves">`;
     for (const g of [...S.dead].reverse()) {
       const d = SURV_BY_ID[g.id];
-      h += `<li>${pt(g.id, 'pt xs', true)}<span><b>${d.name}</b> <small>${d.title} · ${g.day}일째 · ${ZONE_BY_ID[g.zone].name}</small><i>${g.last}</i></span></li>`;
+      h += `<li>${pt(g.id, 'pt xs', true)}<span><b>${d.name}</b> <small>${d.title} · ${g.day}일째 · ${g.zone === 'exile' ? '추방' : ZONE_BY_ID[g.zone].name}</small><i>${g.last}</i></span></li>`;
     }
     h += `</ul></section>`;
   }
@@ -492,11 +517,12 @@ function openIntro(): void {
   );
 }
 
-function openOffline(ms: number, caps: number): void {
+function openOffline(ms: number, food: number, water: number): void {
+  const d = (n: number): string => (n >= 0 ? `+${fmt(n)}` : `−${fmt(-n)}`);
   openModal(
     'offline',
     `<h2>어서 오세요, 점장님</h2>
-    <p class="story">${timeText(ms)} 동안 가게를 비웠어요.<br>그동안 계산대에 뚜껑이 <b class="gold">● ${fmt(caps)}</b>개 쌓였습니다.</p>
+    <p class="story">${timeText(ms)} 동안 자리를 비웠어요.<br>그동안 비축은 🍞 <b>${d(food)}</b> · 💧 <b>${d(water)}</b> 만큼 변했습니다.</p>
     <button class="btn primary wide" data-act="close">챙기기</button>`,
   );
 }
@@ -505,7 +531,7 @@ function openSettings(): void {
   openModal(
     'settings',
     `<h2>설정</h2>
-    <p class="dim">저장은 이 기기의 브라우저에만 됩니다. 접속하지 않아도 시간은 흘러 수입이 쌓이고 탐사가 진행돼요.</p>
+    <p class="dim">저장은 이 기기의 브라우저에만 됩니다. 접속하지 않아도 시간은 흘러 식량과 물이 줄고 탐사가 진행돼요.</p>
     <p class="dim sm">시험용: 주소 끝에 <b>?speed=30</b> 을 붙이면 시간이 30배 빨라져요.</p>
     <button class="btn danger wide" data-act="reset1">처음부터 다시 하기</button>
     <button class="btn wide" data-act="close">닫기</button>`,
@@ -524,6 +550,20 @@ function openVisitor(): void {
     <p class="buffline">✨ ${d.buff.text}</p>
     <button class="btn primary wide" data-act="recruit" data-id="${id}">들어오세요</button>
     <button class="btn wide" data-act="close">조금만 더 기다려 주세요</button>`,
+  );
+}
+
+function openCrisis(): void {
+  const wid = weakestId(S);
+  const w = wid ? SURV_BY_ID[wid] : null;
+  openModal(
+    'crisis',
+    `<h2>⚠ 식량이 바닥난 지 오래다</h2>
+    <p class="story">밤새 배 고픈 소리가 벙커에 울린다. 누군가 조용히 말했다. "…입이 하나 줄면 다들 버티겠죠."</p>
+    ${w ? `<div class="lost">${pt(w.id, 'pt sm')}<span><b>${w.name}</b> <small>${w.title}</small><i>가장 도움이 안 되는 입이라고, 모두가 생각한다.</i></span></div>` : ''}
+    ${w ? `<button class="btn danger wide" data-act="crisis-exile">${josa(w.name, 'eulreul')} 내보낸다</button>` : ''}
+    <button class="btn wide" data-act="crisis-endure">모두 굶고 버틴다 (전원 호감도 -10, 3시간 유예)</button>
+    <p class="dim sm">식량과 물을 구해 오면 위기는 지나갑니다. 선택을 미룰 수는 없어요.</p>`,
   );
 }
 
@@ -556,6 +596,7 @@ function reportHtml(r: Report): string {
     ${lost}
     ${r.grief.length ? `<p class="dim sm">💔 친구를 잃은 ${r.grief.map((g) => SURV_BY_ID[g].name).join(', ')} — 한참 말이 없다. (호감도 -8, 잠시 쉼)</p>` : ''}
     <ul class="loot">${list}</ul>
+    <p class="supplies">${(['food', 'water', 'med'] as ResKey[]).filter((k) => r.supplies[k] > 0).map((k) => `${RES[k].icon} ${RES[k].name} <b>+${r.supplies[k]}</b>`).join(' · ')}</p>
     <p class="gain">● +${fmt(r.caps)}${r.bonusCaps ? ` <small>(+${fmt(r.bonusCaps)} ${r.firstClear ? '첫 탐사·' : ''}새 발견 보너스)</small>` : ''}</p>
     <button class="btn primary wide" data-act="close">선반에 올리기</button>`;
 }
@@ -570,7 +611,6 @@ function itemModal(id: string): void {
     ? `<p class="story">${d.desc}</p>
        <ul class="lines"><li><span>분류</span><b>${CATS[d.cat].icon} ${CATS[d.cat].name}</b></li>
        <li><span>보유</span><b>${n}개</b></li>
-       <li><span>진열 수입</span><b>+${fmt1(itemIncome(d.rarity, n))}/분</b></li>
        <li><span>팔면</span><b>● ${sellPrice(S, id, Date.now())}</b></li></ul>
        ${lovers.length ? `<p class="dim sm">💝 ${josa(lovers.join(', '), 'iga')} 아주 좋아해요.</p>` : ''}
        <button class="btn wide" data-act="sell" data-id="${id}" ${n > 0 ? '' : 'disabled'}>1개 팔기 (● +${sellPrice(S, id, Date.now())})</button>`
@@ -695,6 +735,28 @@ function onClick(e: Event): void {
     }
     case 'visitor':
       openVisitor();
+      break;
+    case 'ration':
+      setRation(S, id as keyof typeof RATIONS);
+      saveState(S);
+      renderPanel();
+      break;
+    case 'crisis-exile': {
+      const r = resolveCrisis(S, 'exile', now);
+      saveState(S);
+      closeModal();
+      if (r.ok && r.exiled) {
+        const d = SURV_BY_ID[r.exiled.id];
+        toast(`${josa(d.name, 'eulreul')} 내보냈다…`, 'bad');
+        for (const g of r.grief) toast(`💔 ${SURV_BY_ID[g].name}의 눈빛이 달라졌다`, 'bad');
+      }
+      break;
+    }
+    case 'crisis-endure':
+      resolveCrisis(S, 'endure', now);
+      saveState(S);
+      closeModal();
+      toast('모두 굶고 버티기로 했다. 눈치가 싸늘하다.', 'bad');
       break;
     case 'recruit':
       if (recruit(S, id, now)) {

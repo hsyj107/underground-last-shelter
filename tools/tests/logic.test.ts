@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ITEMS, ITEM_BY_ID, PROFS, ZONES, SHELF_ORDER, CAT_ORDER, RARITY, UPGRADES } from '../../src/data.ts';
+import { ITEMS, ITEM_BY_ID, PROD, PROFS, ZONES, SHELF_ORDER, CAT_ORDER, RARITY, UPGRADES } from '../../src/data.ts';
 import { SHAPES } from '../../src/shapes.ts';
 import * as g from '../../src/state.ts';
 
@@ -43,25 +43,37 @@ test('데이터 무결성: 아이템/모양/구역', () => {
   for (const z of ZONES) assert.ok(z.unlock <= ITEMS.length);
 });
 
-test('새 게임과 기본 수입', () => {
+test('새 게임: 비축이 있고 점장 혼자서는 먹고살 만하다', () => {
   const s = g.newState('테스트', 0);
   assert.equal(s.caps, 20);
-  const inc = g.incomeBreakdown(s, 0);
-  assert.equal(inc.perMin, g.BASE_INCOME);
-  s.items['f_tuna'] = 1;
-  assert.equal(g.incomeBreakdown(s, 0).perMin, g.BASE_INCOME + RARITY.common.income);
-  s.items['f_tuna'] = 3; // 같은 물건 추가분은 +10%씩
-  assert.ok(Math.abs(g.incomeBreakdown(s, 0).perMin - (g.BASE_INCOME + RARITY.common.income * 1.2)) < 1e-9);
+  assert.deepEqual(s.res, { food: 60, water: 60, med: 10 });
+  const f = g.flow(s, 0);
+  assert.ok(f.prod.food > f.cons.food && f.prod.water > f.cons.water);
+  assert.equal(g.heads(s), 1);
 });
 
-test('시간이 흐르면 뚜껑이 쌓이고, 자리 비움 한도가 있다', () => {
+test('시간이 흐르면 먹고 마시고, 부족하면 바닥난다', () => {
+  g.setRng(Math.random);
   const s = g.newState('a', 0);
-  g.tick(s, 60_000);
-  assert.ok(Math.abs(s.caps - (20 + g.BASE_INCOME)) < 1e-6);
+  for (let i = 0; i < 5; i++) join(s, 'kid'); // 6명
+  s.res = { food: 10, water: 10, med: 0 };
+  const f = g.flow(s, 0);
+  assert.ok(f.cons.food > f.prod.food);
+  g.tick(s, 10 * 60_000);
+  assert.ok(s.res.food < 10);
+  g.tick(s, 600 * 60_000);
+  assert.equal(s.res.food, 0);
+  assert.ok(s.shortMs > 0);
+  assert.equal(g.effectiveRation(s), 'starve');
+});
+
+test('자리 비움 한도: 한도를 넘는 시간은 흐르지 않는다', () => {
+  const s = g.newState('a', 0);
   const cap = g.offlineCapMs(s);
   const s2 = g.newState('b', 0);
+  g.tick(s, cap);
   g.tick(s2, cap * 5);
-  assert.ok(Math.abs(s2.caps - (20 + (g.BASE_INCOME * cap) / 60000)) < 1e-3);
+  assert.ok(Math.abs(s.res.food - s2.res.food) < 1e-6);
 });
 
 test('첫 방문자는 식당 사장이고 영입하면 크루가 된다', () => {
@@ -163,7 +175,7 @@ test('들키면 전리품 절반, 피로가 생긴다', () => {
   assert.ok(r.ok);
   if (!r.ok) return;
   assert.ok(r.exp.result.caught);
-  assert.equal(r.exp.result.items.length, 1); // floor(3/2)
+  assert.equal(r.exp.result.items.length, Math.floor(g.previewExpedition(s, 'megamart', ['me'], 0).loot / 2));
   const rep = g.claimExpedition(s, r.exp.id, r.exp.end);
   assert.ok(rep?.caught);
   assert.ok(g.isTired(s, 'me', r.exp.end + 1));
@@ -206,28 +218,82 @@ test('대화에는 쿨타임, 선물은 개수를 소모하고 취향에 따라 
   g.setRng(Math.random);
 });
 
-test('생존자 버프는 매장에 있을 때만 수입에 반영된다', () => {
+test('생존자 버프는 벙커에 있을 때만 생산에 반영된다', () => {
   const s = g.newState('a', 0);
-  const songi = join(s, 'cook');
-  s.items['f_tuna'] = 1;
-  const home = g.incomeBreakdown(s, 0).perMin;
-  assert.ok(Math.abs(home - (g.BASE_INCOME + RARITY.common.income * 1.4)) < 1e-9);
-  s.exps.push({ id: 'x', zone: 'mart', members: [songi], start: 0, end: 1000, result: { items: [], caps: 0, caught: false, line: '', deaths: [] }, notified: false });
-  assert.ok(Math.abs(g.incomeBreakdown(s, 500).perMin - (g.BASE_INCOME + RARITY.common.income)) < 1e-9); // 탐사 중
-  assert.ok(Math.abs(g.incomeBreakdown(s, 1500).perMin - home) < 1e-9); // 돌아옴
+  const base = g.flow(s, 0).prod.food;
+  const cook = join(s, 'cook');
+  const home = g.flow(s, 0).prod.food;
+  assert.ok(Math.abs(home - base * 1.4) < 1e-9);
+  s.exps.push({ id: 'x', zone: 'mart', members: [cook], start: 0, end: 1000, result: { items: [], caps: 0, caught: false, line: '', deaths: [], supplies: { food: 0, water: 0, med: 0 } }, notified: false });
+  assert.ok(Math.abs(g.flow(s, 500).prod.food - base) < 1e-9); // 탐사 중
+  assert.ok(Math.abs(g.flow(s, 1500).prod.food - home) < 1e-9); // 돌아옴
 });
 
-test('분류 완성 보너스와 전체 완성 보너스', () => {
+test('분류 완성 효과: 식료품은 식량 생산 +25%', () => {
   const s = g.newState('a', 0);
-  for (const it of ITEMS.filter((i) => i.cat === 'pet')) {
-    s.found[it.id] = 1;
-    s.items[it.id] = 1;
-  }
-  assert.ok(g.catComplete(s, 'pet'));
-  assert.equal(g.incomeBreakdown(s, 0).byCat.pet.mult, 1.25);
-  for (const it of ITEMS) s.found[it.id] = 1;
-  assert.ok(g.allComplete(s));
-  assert.ok(Math.abs(g.incomeBreakdown(s, 0).finalMult - 1.5) < 1e-9);
+  const base = g.flow(s, 0).prod.food;
+  for (const it of ITEMS.filter((i) => i.cat === 'food')) s.found[it.id] = 1;
+  assert.ok(g.catComplete(s, 'food'));
+  assert.ok(Math.abs(g.flow(s, 0).prod.food - base * 1.25) < 1e-9);
+  for (const it of ITEMS.filter((i) => i.cat === 'tech')) s.found[it.id] = 1;
+  assert.ok(g.expeditionMs(s, ZONES[0]) < ZONES[0].minutes * 60000);
+});
+
+test('절식: 소비가 줄고 탐사 사망 확률이 오른다', () => {
+  const s = g.newState('a', 0);
+  const kid = join(s, 'kid');
+  const normal = g.flow(s, 0).cons.food;
+  const p0 = g.deathChance(kid, [kid], s);
+  g.setRation(s, 'reduced');
+  assert.ok(g.flow(s, 0).cons.food < normal);
+  assert.ok(g.deathChance(kid, [kid], s) > p0);
+  g.setRation(s, 'starve');
+  assert.ok(g.deathChance(kid, [kid], s) > g.deathChance(kid, [kid], (g.setRation(s, 'reduced'), s)));
+  // 책 읽어 주는 만화방 주인이 있으면 부작용이 줄어든다
+  g.setRation(s, 'reduced');
+  const before = g.deathChance(kid, [kid], s);
+  join(s, 'comic');
+  assert.ok(g.deathChance(kid, [kid], s, 0) < before);
+});
+
+test('탐사 보급: 물자가 비축에 더해지고 간호사가 있으면 의약품이 늘어난다', () => {
+  g.setRng(() => 0.5);
+  const s = g.newState('a', 0);
+  s.found = Object.fromEntries(ITEMS.slice(0, 6).map((i) => [i.id, 1]));
+  const r = g.startExpedition(s, 'pharmacy', ['me'], 0);
+  if (!r.ok) throw new Error(r.error);
+  assert.ok(r.exp.result.supplies.med > 0);
+  const nurse = join(s, 'nurse');
+  const medBefore = s.res.med;
+  const rep = g.claimExpedition(s, r.exp.id, r.exp.end)!;
+  assert.equal(rep.supplies.med, Math.round(r.exp.result.supplies.med * 1.4));
+  assert.equal(s.res.med, medBefore + rep.supplies.med);
+  assert.ok(nurse);
+  g.setRng(Math.random);
+});
+
+test('굶주림 위기: 오래 굶으면 터지고, 추방하면 입이 하나 준다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0);
+  const kid = join(s, 'kid');
+  const sol = join(s, 'soldier');
+  s.res = { food: 0, water: 0, med: 0 };
+  const ev = g.tick(s, 7 * 3600_000);
+  assert.ok(ev.some((e) => e.type === 'crisis'));
+  assert.ok(s.crisis);
+  assert.equal(g.weakestId(s), kid); // 능력치가 가장 낮은 아이
+  const r = g.resolveCrisis(s, 'exile', 7 * 3600_000);
+  assert.ok(r.ok && r.exiled?.id === kid);
+  assert.deepEqual(s.crew, [sol]);
+  assert.equal(s.dead[0].zone, 'exile');
+  assert.ok(!s.crisis);
+  // 버티기: 호감 -10, 유예
+  s.crisis = true;
+  s.aff[sol] = 30;
+  g.resolveCrisis(s, 'endure', 7 * 3600_000);
+  assert.equal(s.aff[sol], 20);
+  assert.ok(s.shortMs < 6 * 3600_000);
+  assert.ok(!g.resolveCrisis(s, 'exile', 0).ok); // 위기가 아니면 불가
 });
 
 test('판매와 개조', () => {
@@ -236,16 +302,17 @@ test('판매와 개조', () => {
   assert.equal(g.sellItem(s, 'm_serum', 0), 100);
   assert.equal(s.items['m_serum'], 1);
   assert.equal(g.sellItem(s, 'f_tuna', 0), 0);
-  const c0 = UPGRADES.shelf.base;
+  const c0 = UPGRADES.farm.base;
   s.caps = c0 - 1;
-  assert.ok(!g.buyUpgrade(s, 'shelf'));
+  assert.ok(!g.buyUpgrade(s, 'farm'));
   s.caps = c0;
-  assert.ok(g.buyUpgrade(s, 'shelf'));
-  assert.equal(s.upg.shelf, 1);
+  assert.ok(g.buyUpgrade(s, 'farm'));
+  assert.equal(s.upg.farm, 1);
   assert.equal(s.caps, 0);
-  assert.equal(g.upgradeCost('shelf', 1), Math.round(UPGRADES.shelf.base * UPGRADES.shelf.grow));
-  s.items = {}; // 남은 전설 아이템의 수입을 빼고 계산
-  assert.ok(Math.abs(g.incomeBreakdown(s, 0).perMin - g.BASE_INCOME * 1.15) < 1e-9);
+  assert.equal(g.upgradeCost('farm', 1), Math.round(UPGRADES.farm.base * UPGRADES.farm.grow));
+  assert.ok(g.flow(s, 0).prod.food > PROD.food);
+  s.upg.store = 2;
+  assert.equal(g.flow(s, 0).cap, PROD.cap + PROD.capLv * 2);
   s.upg.pack = 4;
   s.caps = 1e9;
   assert.ok(!g.buyUpgrade(s, 'pack')); // 최대
@@ -332,7 +399,7 @@ test('매력: 매장에 있는 가장 매력적인 사람이 판매가를 올린
   const up = g.sellPrice(s, 'm_serum', 0);
   assert.equal(up, Math.round(100 * (1 + 0.03 * s.people[dj].stats.cha)));
   // 탐사 중이면 흥정해 줄 수 없다
-  s.exps.push({ id: 'x', zone: 'mart', members: [dj], start: 0, end: 1000, result: { items: [], caps: 0, caught: false, line: '', deaths: [] }, notified: false });
+  s.exps.push({ id: 'x', zone: 'mart', members: [dj], start: 0, end: 1000, result: { items: [], caps: 0, caught: false, line: '', deaths: [], supplies: { food: 0, water: 0, med: 0 } }, notified: false });
   assert.equal(g.sellPrice(s, 'm_serum', 500), 100);
 });
 

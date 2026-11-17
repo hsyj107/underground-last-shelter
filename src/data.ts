@@ -97,6 +97,13 @@ export const ITEM_BY_ID: Record<string, ItemDef> = Object.fromEntries(ITEMS.map(
 /** 선반에는 분류 순서대로 진열된다 */
 export const SHELF_ORDER: string[] = CAT_ORDER.flatMap((c) => ITEMS.filter((i) => i.cat === c).map((i) => i.id));
 
+export type ResKey = 'food' | 'water' | 'med';
+export const RES: Record<ResKey, { name: string; icon: string }> = {
+  food: { name: '식량', icon: '🍞' },
+  water: { name: '식수', icon: '💧' },
+  med: { name: '의약품', icon: '💊' },
+};
+
 export interface ZoneDef {
   id: string;
   name: string;
@@ -108,30 +115,39 @@ export interface ZoneDef {
   /** 도감 몇 종을 발견해야 열리는지 */
   unlock: number;
   cats: Partial<Record<Cat, number>>;
+  /** 이 구역에서 가져오는 생존 물자의 범위 */
+  supply: Partial<Record<ResKey, [number, number]>>;
   blurb: string;
   lines: string[];
 }
 
 export const ZONES: ZoneDef[] = [
   { id: 'mart', name: '동네 슈퍼마트', icon: '🛒', D: 1, minutes: 4, unlock: 0, cats: { food: 10, daily: 5, pet: 4 },
+    supply: { food: [16, 30], water: [10, 20] },
     blurb: '셔터가 반쯤 내려간 동네 마트. 다들 한 번은 털고 간 곳.',
     lines: ['진열대 밑에서 굴러 들어간 물건을 건졌다.', '좀비 두 마리가 졸고 있어서 발끝으로 걸었다.', '계산대 밑 서랍까지 샅샅이 뒤졌다.'] },
   { id: 'pharmacy', name: '24시 약국', icon: '💊', D: 1, minutes: 8, unlock: 5, cats: { medical: 10, daily: 3, food: 2 },
+    supply: { med: [8, 16], water: [6, 12] },
     blurb: '24시간이라더니 정말 불이 꺼진 적이 없다. 간판만.',
     lines: ['약 서랍마다 라벨이 또박또박 붙어 있었다.', '조제실 안쪽에서 의외로 깨끗한 상자를 찾았다.', '쇼케이스 뒤쪽까지 손을 뻗었다.'] },
   { id: 'bookstore', name: '고서당 헌책방', icon: '📖', D: 2, minutes: 15, unlock: 10, cats: { culture: 10, daily: 3, pet: 1 },
+    supply: { food: [4, 8], water: [4, 8] },
     blurb: '종이 냄새가 가득하다. 쌓인 책탑 사이로 뭔가 움직인다.',
     lines: ['책탑이 무너질까 봐 숨을 참고 걸었다.', '먼지 쌓인 서가 뒤에서 상자를 발견했다.', '좀비가 책을 읽는 척 서 있었다. 그냥 지나쳤다.'] },
   { id: 'electro', name: '전자상가', icon: '🔌', D: 3, minutes: 25, unlock: 16, cats: { tech: 10, culture: 2, daily: 2 },
+    supply: { water: [8, 14], food: [3, 6] },
     blurb: '네온 간판이 아직도 한 글자 깜박인다. 좀비도 깜박인다.',
     lines: ['선이 엉킨 진열대에서 쓸 만한 걸 골라냈다.', '셔터 틈으로 기어서 들어갔다.', '전원이 들어오는 물건이 몇 개나 남아 있었다.'] },
   { id: 'hospital', name: '종합병원', icon: '🏥', D: 4, minutes: 40, unlock: 22, cats: { medical: 10, tech: 3, daily: 2 },
+    supply: { med: [20, 34], food: [6, 10], water: [6, 10] },
     blurb: '로비엔 아직 대기번호가 켜져 있다. 불길한 숫자다.',
     lines: ['약제과 금고를 열 수 있는 방법을 찾았다.', '병동 복도에서 소리 없이 이동했다.', '응급실 카트에서 쓸 만한 물건을 건졌다.'] },
   { id: 'police', name: '경찰서', icon: '🚓', D: 4, minutes: 60, unlock: 28, cats: { tech: 5, daily: 5, medical: 3, culture: 1 },
+    supply: { food: [8, 14], med: [6, 12], water: [6, 12] },
     blurb: '유치장 문은 안에서 열려 있다. 누가 먼저 나갔는지는 모른다.',
     lines: ['증거물 보관실에서 의외의 물건이 쏟아졌다.', '순찰차 트렁크를 열고 숨을 골랐다.', '당직실 책상 서랍에서 비상용품을 찾았다.'] },
   { id: 'megamart', name: '대형마트 지하', icon: '🏬', D: 5, minutes: 120, unlock: 34, cats: { food: 6, medical: 6, tech: 6, culture: 6, pet: 6, daily: 6 },
+    supply: { food: [40, 70], water: [30, 50], med: [14, 26] },
     blurb: '카트 소리가 아직 울린다. 그 소리는 사람이 아니다.',
     lines: ['어둠 속에서 카트를 천천히 밀어 진열대를 돌았다.', '창고 가장 안쪽에서 손도 안 댄 팔레트를 발견했다.', '냉동 코너만은 건드리지 않고 지나갔다.'] },
 ];
@@ -141,7 +157,8 @@ export const ZONE_BY_ID: Record<string, ZoneDef> = Object.fromEntries(ZONES.map(
 
 // ---------- 생존자 ----------
 
-export type BuffKind = 'store_cat' | 'store_all' | 'exp_guard' | 'exp_luck' | 'exp_loot';
+/** 벙커에 있을 때 적용(prod_*, calm, med_yield) 또는 탐사대에 있을 때 적용(exp_*) */
+export type BuffKind = 'prod_food' | 'prod_water' | 'prod_all' | 'med_yield' | 'calm' | 'exp_guard' | 'exp_luck' | 'exp_loot';
 
 export interface Look {
   skin: string;
@@ -170,8 +187,7 @@ export interface SurvDef {
   name: string;
   title: string;
   look: Look;
-  /** 매장에 있을 때(store_*) 또는 탐사대에 있을 때(exp_*) 적용 */
-  buff: { kind: BuffKind; cat?: Cat; value: number; text: string };
+    buff: { kind: BuffKind; cat?: Cat; value: number; text: string };
   power: number;
   likes: { items: string[]; cat?: Cat };
   unlock: Unlock;
@@ -227,7 +243,7 @@ export const PLAYER: SurvDef = {
   name: '점장',
   title: '지하 7층 편의점 점장',
   look: { skin: '#f0c8a0', hair: '#3a2a22', style: 'short', top: '#2f4a6a', top2: '#ff9a3c', pants: '#3a3a4a', shoes: '#2a2a2a', acc: ['vest', 'cap'] },
-  buff: { kind: 'store_all', value: 0, text: '점장은 모든 걸 조금씩 한다' },
+  buff: { kind: 'prod_all', value: 0, text: '점장은 모든 걸 조금씩 한다' },
   power: 1,
   likes: { items: [] },
   unlock: { type: 'start' },
@@ -254,7 +270,7 @@ export const PROFS: ProfDef[] = [
     look: { skin: '#f0c8a0', hair: '#4a3022', style: 'bun', top: '#d8d0c0', top2: '#f4efe4', pants: '#4a5a6a', shoes: '#5a4a3a', acc: ['chefhat', 'apron'] },
     styles: ['bun', 'short'],
     range: { str: [2, 5], agi: [3, 6], med: [1, 4], cha: [3, 6] }, names: 'person',
-    buff: { kind: 'store_cat', cat: 'food', value: 0.4, text: '매장에 있으면 식료품 수입 +40%' },
+    buff: { kind: 'prod_food', value: 0.4, text: '벙커에 있으면 식량 생산 +40%' },
     likes: { items: ['f_ramen', 'f_coffee'], cat: 'food' },
     unlock: { type: 'start' }, hint: '곧 누군가 문을 두드린다.',
     intro: '"문 좀 열어주세요… 혹시 컵라면 냄새 안 나요? 주방, 아니, 그 구석 좀 써도 될까요?"',
@@ -270,7 +286,7 @@ export const PROFS: ProfDef[] = [
     id: 'dev', title: '밤샘 코딩하던 개발자',
     look: { skin: '#f4d4b0', hair: '#2a2a3a', style: 'short', top: '#4a4a5a', top2: '#3a3a48', pants: '#2f3a4a', shoes: '#e8e8e8', acc: ['hood', 'glasses'] },
     range: { str: [1, 3], agi: [5, 9], med: [1, 3], cha: [1, 4] }, names: 'person',
-    buff: { kind: 'store_cat', cat: 'tech', value: 0.4, text: '매장에 있으면 전자기기 수입 +40%' },
+    buff: { kind: 'prod_water', value: 0.4, text: '벙커에 있으면 정수·식수 생산 +40%' },
     likes: { items: ['t_game', 't_laptop'], cat: 'tech' },
     unlock: { type: 'found', n: 6 }, hint: '도감을 6종 채우면 찾아온다.',
     intro: '"저, 저기… 와이파이 있어요? 아, 없구나. 그럼 일단 들어가도 돼요? 아니 들어가겠습니다."',
@@ -320,7 +336,7 @@ export const PROFS: ProfDef[] = [
     look: { skin: '#f4d4b0', hair: '#3a2a2a', style: 'long', top: '#78b8c8', top2: '#5898a8', pants: '#78b8c8', shoes: '#f4efe4', acc: ['nursecap'] },
     styles: ['long', 'bun'],
     range: { str: [1, 4], agi: [2, 5], med: [7, 10], cha: [4, 7] }, names: 'person',
-    buff: { kind: 'store_cat', cat: 'medical', value: 0.4, text: '매장에 있으면 의약품 수입 +40%' },
+    buff: { kind: 'med_yield', value: 0.4, text: '벙커에 있으면 탐사에서 얻는 의약품 +40%' },
     likes: { items: ['m_vita', 'f_coffee'], cat: 'medical' },
     unlock: { type: 'cat', cat: 'medical', n: 3 }, hint: '의약품을 3종 발견하면 찾아온다.',
     intro: '"다친 사람 있어요? 아니면 제가 먼저 다쳤을지도. 하하, 농담이에요. 들어가도 될까요?"',
@@ -337,7 +353,7 @@ export const PROFS: ProfDef[] = [
     look: { skin: '#e8c098', hair: '#e8e8e8', style: 'short', top: '#8a6a4a', top2: '#7a5a3a', pants: '#4a4a4a', shoes: '#3a2a22', acc: ['beard', 'cane'] },
     hairs: ['#e8e8e8', '#d0d0d0'],
     range: { str: [1, 3], agi: [2, 5], med: [1, 3], cha: [2, 5] }, names: 'old',
-    buff: { kind: 'store_cat', cat: 'culture', value: 0.4, text: '매장에 있으면 문화 수입 +40%' },
+    buff: { kind: 'calm', value: 0.5, text: '벙커에 있으면 절식의 부작용이 절반' },
     likes: { items: ['c_vol4', 'c_comic'], cat: 'culture' },
     unlock: { type: 'cat', cat: 'culture', n: 3 }, hint: '문화 물건을 3종 발견하면 찾아온다.',
     intro: '"어허, 문 열어라 이놈들아. …아니, 문 좀 열어 주시오. 내 만화 전집이 여기 있다고 들었소."',
@@ -354,7 +370,7 @@ export const PROFS: ProfDef[] = [
     look: { skin: '#e8c098', hair: '#6a3a8a', style: 'long', top: '#3a3a5a', top2: '#e84a8a', pants: '#2a2a3a', shoes: '#e84a8a', acc: ['headphones'] },
     hairs: ['#6a3a8a', '#e84a8a', '#2a6a8a'],
     range: { str: [1, 3], agi: [3, 6], med: [1, 3], cha: [7, 10] }, names: 'person',
-    buff: { kind: 'store_all', value: 0.1, text: '매장에 있으면 전체 수입 +10%' },
+    buff: { kind: 'prod_all', value: 0.1, text: '벙커에 있으면 모든 생산 +10%' },
     likes: { items: ['t_radio', 'c_lp', 'c_tape'], cat: 'culture' },
     unlock: { type: 'item', id: 't_radio' }, hint: '작동하는 라디오를 발견하면 찾아온다.',
     intro: '"안녕하세요 B7 청취자 여러분— 아, 청취자가 아직 없구나. 방송 장비부터 찾아야겠어요!"',
@@ -420,11 +436,20 @@ export function resetRegistry(): void {
 
 // ---------- 개조 ----------
 
-export type UpgKey = 'shelf' | 'pack' | 'radio' | 'gen';
+export type UpgKey = 'farm' | 'water' | 'store' | 'pack' | 'radio' | 'gen';
+
+/** 생산·창고 수치는 state.ts 가 이 표를 보고 계산한다 */
+export const PROD = { food: 0.08, foodLv: 0.04, water: 0.1, waterLv: 0.05, cap: 120, capLv: 80, medCap: 60 };
 
 export const UPGRADES: Record<UpgKey, { name: string; icon: string; max: number; base: number; grow: number; text: (lv: number) => string }> = {
-  shelf: { name: '선반 확장', icon: '🗄️', max: 12, base: 100, grow: 2.2, text: (lv) => `전체 수입 +${lv * 15}%` },
+  farm: { name: '수경재배', icon: '🌱', max: 5, base: 120, grow: 2.2, text: (lv) => `식량 생산 ${fmtN(PROD.food + PROD.foodLv * lv)}/분` },
+  water: { name: '정수 설비', icon: '💧', max: 5, base: 120, grow: 2.2, text: (lv) => `식수 생산 ${fmtN(PROD.water + PROD.waterLv * lv)}/분` },
+  store: { name: '비축 창고', icon: '📦', max: 5, base: 150, grow: 2.4, text: (lv) => `식량·식수 보관 ${PROD.cap + PROD.capLv * lv}까지` },
   pack: { name: '튼튼한 배낭', icon: '🎒', max: 4, base: 300, grow: 3, text: (lv) => `탐사 전리품 +${lv}개` },
   radio: { name: '무전 안테나', icon: '📡', max: 5, base: 400, grow: 2.4, text: (lv) => `탐사 시간 -${lv * 7}% · 방문자 빨라짐` },
-  gen: { name: '예비 발전기', icon: '⚡', max: 5, base: 250, grow: 2.4, text: (lv) => `자리 비워도 수입 ${4 + lv * 2}시간까지` },
+  gen: { name: '예비 발전기', icon: '⚡', max: 5, base: 250, grow: 2.4, text: (lv) => `자리 비워도 ${8 + lv * 2}시간까지 벙커가 돌아가요` },
 };
+
+function fmtN(n: number): string {
+  return (Math.round(n * 100) / 100).toString();
+}

@@ -1,7 +1,6 @@
 // 게임 규칙. 화면과 무관하게 동작하므로 node 로 그대로 테스트할 수 있다.
 import {
   CAT_NAMES,
-  CAT_ORDER,
   CHAPTER_AFF,
   DARK_HAIRS,
   GIVEN,
@@ -10,6 +9,7 @@ import {
   KID_NAMES,
   OLD_GIVEN,
   PLAYER,
+  PROD,
   PROFS,
   PROF_BY_ID,
   RARITY,
@@ -22,9 +22,11 @@ import {
   registerPerson,
   resetRegistry,
 } from './data.ts';
-import type { Cat, Look, Person, ProfDef, Stats, SurvDef, Unlock, UpgKey, ZoneDef } from './data.ts';
+import type { Cat, Look, Person, ProfDef, ResKey, Stats, SurvDef, Unlock, UpgKey, ZoneDef } from './data.ts';
 
 export const config = { speed: 1 };
+/** 물자가 바닥난 채로 이 시간이 지나면 위기가 터진다 */
+const CRISIS_MS = 6 * 3600 * 1000;
 let rng: () => number = Math.random;
 export function setRng(f: () => number): void {
   rng = f;
@@ -35,6 +37,8 @@ export interface ExpResult {
   caps: number;
   caught: boolean;
   line: string;
+  /** 가져오는 생존 물자 */
+  supplies: Record<ResKey, number>;
   /** 출발할 때 이미 정해진 죽음. 돌아와서 가방을 열 때 알게 된다. */
   deaths: { id: string; last: string }[];
 }
@@ -57,6 +61,13 @@ export interface Expedition {
   notified: boolean;
 }
 
+export type Ration = 'normal' | 'reduced' | 'starve';
+export const RATIONS: Record<Ration, { name: string; icon: string; eat: number; death: number; talk: number; text: string }> = {
+  normal: { name: '정상 배급', icon: '🍚', eat: 1, death: 1, talk: 1, text: '모두가 제대로 먹는다.' },
+  reduced: { name: '절식', icon: '🥣', eat: 0.6, death: 1.25, talk: 0.5, text: '소비 -40%. 탐사 사망 확률 +25%, 대화로 얻는 호감 절반.' },
+  starve: { name: '극한 절식', icon: '🫗', eat: 0.3, death: 1.6, talk: 0, text: '소비 -70%. 탐사 사망 확률 +60%, 대화로 호감을 얻을 수 없다.' },
+};
+
 export interface State {
   v: 2;
   /** 두 사람 사이의 관계. 키는 정렬한 id 두 개를 | 로 이은 것. 없으면 그냥 아는 사이 */
@@ -69,6 +80,13 @@ export interface State {
   created: number;
   last: number;
   caps: number;
+  /** 벙커 비축 물자 */
+  res: Record<ResKey, number>;
+  ration: Ration;
+  /** 식량이나 식수가 바닥난 채로 흐른 시간(ms) */
+  shortMs: number;
+  /** 굶주림 위기를 결정해야 하는 상태 */
+  crisis: boolean;
   /** 보유 개수 */
   items: Record<string, number>;
   /** 처음 발견한 시각 (도감) */
@@ -89,9 +107,9 @@ export interface State {
 
 export type GameEvent =
   | { type: 'visitor'; id: string }
+  | { type: 'crisis' }
   | { type: 'exp_done'; id: string; zone: string };
 
-export const BASE_INCOME = 2;
 const ms = (n: number): number => Math.round(n / config.speed);
 
 export function newState(name: string, now: number): State {
@@ -106,6 +124,10 @@ export function newState(name: string, now: number): State {
     created: now,
     last: now,
     caps: 20,
+    res: { food: 60, water: 60, med: 10 },
+    ration: 'normal',
+    shortMs: 0,
+    crisis: false,
     items: {},
     found: {},
     crew: [],
@@ -113,7 +135,7 @@ export function newState(name: string, now: number): State {
     talkAt: {},
     tapAt: {},
     tired: {},
-    upg: { shelf: 0, pack: 0, radio: 0, gen: 0 },
+    upg: { farm: 0, water: 0, store: 0, pack: 0, radio: 0, gen: 0 },
     exps: [],
     zoneClears: {},
     visitor: null,
@@ -174,49 +196,80 @@ export function availableCrew(s: State, now: number): string[] {
   return ['me', ...s.crew].filter((id) => !away.has(id) && !isTired(s, id, now));
 }
 
-export function itemIncome(rarity: keyof typeof RARITY, n: number): number {
-  if (n <= 0) return 0;
-  return RARITY[rarity].income * (1 + 0.1 * (Math.min(n, 5) - 1));
+// ---------- 비축 · 소비 ----------
+
+/** 벙커에서 먹고 마시는 사람 (점장 포함, 탐사 중이어도 몫은 따로 챙겨 둔다) */
+export function heads(s: State): number {
+  return 1 + s.crew.length;
 }
 
-export interface Income {
-  perMin: number;
-  base: number;
-  shelfMult: number;
-  allMult: number;
-  finalMult: number;
-  byCat: Record<Cat, { sum: number; mult: number; complete: boolean; buff: number }>;
+/** 지금 적용되는 배급 단계. 물자가 바닥나면 설정과 상관없이 극한 절식이다. */
+export function effectiveRation(s: State): Ration {
+  return s.res.food <= 0 || s.res.water <= 0 ? 'starve' : s.ration;
 }
 
-export function incomeBreakdown(s: State, now: number): Income {
-  const home = homeCrew(s, now);
-  const byCat = {} as Income['byCat'];
-  let total = BASE_INCOME;
-  for (const cat of CAT_ORDER) {
-    const sum = ITEMS.filter((i) => i.cat === cat).reduce((a, i) => a + itemIncome(i.rarity, s.items[i.id] ?? 0), 0);
-    let buff = 0;
-    for (const id of home) {
-      const d = SURV_BY_ID[id];
-      if (d && d.buff.kind === 'store_cat' && d.buff.cat === cat) buff += d.buff.value * buffScale(s, id);
-    }
-    const complete = catComplete(s, cat);
-    const mult = 1 + buff + (complete ? 0.25 : 0);
-    byCat[cat] = { sum, mult, complete, buff };
-    total += sum * mult;
-  }
-  let allBuff = 0;
-  for (const id of home) {
+function homeBuff(s: State, now: number, kinds: string[]): number {
+  let v = 0;
+  for (const id of homeCrew(s, now)) {
     const d = SURV_BY_ID[id];
-    if (d && d.buff.kind === 'store_all') allBuff += d.buff.value * buffScale(s, id);
+    if (d && kinds.includes(d.buff.kind)) v += d.buff.value * buffScale(s, id);
   }
-  const shelfMult = 1 + 0.15 * s.upg.shelf;
-  const allMult = 1 + allBuff;
-  const finalMult = shelfMult * allMult * (allComplete(s) ? 1.5 : 1);
-  return { perMin: total * finalMult, base: BASE_INCOME, shelfMult, allMult, finalMult, byCat };
+  return v;
+}
+
+export interface Flow {
+  /** 분당 생산 */
+  prod: Record<'food' | 'water', number>;
+  /** 분당 소비 */
+  cons: Record<'food' | 'water', number>;
+  cap: number;
+}
+
+export const EAT = { food: 0.04, water: 0.06 };
+
+export function flow(s: State, now: number): Flow {
+  const all = homeBuff(s, now, ['prod_all']);
+  const food = (PROD.food + PROD.foodLv * s.upg.farm) * (1 + homeBuff(s, now, ['prod_food']) + all) * (catComplete(s, 'food') ? 1.25 : 1);
+  const water = (PROD.water + PROD.waterLv * s.upg.water) * (1 + homeBuff(s, now, ['prod_water']) + all) * (catComplete(s, 'daily') ? 1.25 : 1);
+  const eat = RATIONS[s.ration].eat;
+  const n = heads(s);
+  return {
+    prod: { food, water },
+    cons: { food: EAT.food * n * eat, water: EAT.water * n * eat },
+    cap: PROD.cap + PROD.capLv * s.upg.store,
+  };
+}
+
+/** 이 자원이 바닥나기까지 남은 분. 줄지 않으면 null. */
+export function minutesLeft(s: State, now: number, k: 'food' | 'water'): number | null {
+  const f = flow(s, now);
+  const net = f.prod[k] - f.cons[k];
+  if (net >= 0) return null;
+  return s.res[k] / -net;
 }
 
 export function offlineCapMs(s: State): number {
-  return (4 + 2 * s.upg.gen) * 3600 * 1000;
+  return (8 + 2 * s.upg.gen) * 3600 * 1000;
+}
+
+/** 절식의 나쁜 효과 배율 (탐사 사망 확률). 책 읽어 주는 사람이 있으면 절반으로 줄어든다. */
+export function rationDeathMult(s: State, now: number): number {
+  const base = RATIONS[effectiveRation(s)].death;
+  const calm = Math.min(0.9, homeBuff(s, now, ['calm']));
+  return 1 + (base - 1) * (1 - calm);
+}
+
+/** 한 자원을 min 분 진행. 0 이 된 뒤 흐른 시간(분)을 돌려준다. */
+function advanceRes(s: State, k: 'food' | 'water', f: Flow, min: number): number {
+  const net = f.prod[k] - f.cons[k];
+  const v = s.res[k] + net * min;
+  if (v >= 0) {
+    s.res[k] = Math.min(f.cap, v);
+    return 0;
+  }
+  const lasted = net < 0 ? s.res[k] / -net : 0;
+  s.res[k] = 0;
+  return Math.max(0, min - lasted);
 }
 
 // ---------- 시간 진행 ----------
@@ -227,10 +280,17 @@ export function tick(s: State, now: number): GameEvent[] {
   const dt = now - s.last;
   if (dt > 0) {
     const eff = Math.min(dt, offlineCapMs(s));
-    const earn = (incomeBreakdown(s, now).perMin * eff) / 60000;
-    s.caps += earn;
-    s.stats.totalCaps += earn;
+    const min = eff / 60000;
+    const f = flow(s, now);
+    const dry = Math.max(advanceRes(s, 'food', f, min), advanceRes(s, 'water', f, min));
+    s.res.med = Math.min(PROD.medCap, s.res.med);
+    if (dry > 0) s.shortMs += dry * 60000;
+    else if (s.res.food > 0 && s.res.water > 0) s.shortMs = 0;
     s.last = now;
+    if (!s.crisis && s.crew.length > 0 && s.shortMs >= ms(CRISIS_MS)) {
+      s.crisis = true;
+      events.push({ type: 'crisis' });
+    }
   }
   for (const e of s.exps) {
     if (e.end <= now && !e.notified) {
@@ -367,7 +427,7 @@ export function recruit(s: State, id: string, now: number): boolean {
 // ---------- 탐사 ----------
 
 export function expeditionMs(s: State, zone: ZoneDef): number {
-  return Math.max(3000, Math.round((zone.minutes * 60000 * (1 - 0.07 * s.upg.radio)) / config.speed));
+  return Math.max(3000, Math.round((zone.minutes * 60000 * (1 - 0.07 * s.upg.radio) * (catComplete(s, 'tech') ? 0.9 : 1)) / config.speed));
 }
 
 export interface Preview {
@@ -385,21 +445,25 @@ export interface Preview {
 }
 
 /** 들켰을 때 죽을 확률. 전투가 세면 낮고, 팀에 의료 능력치가 높은 사람이 있으면 더 낮다. */
-export function deathChance(id: string, members: string[], s?: State): number {
+export function deathChance(id: string, members: string[], s?: State, now = 0): number {
   const d = SURV_BY_ID[id];
   if (!d || id === 'me') return 0;
   const medic = Math.max(0, ...members.map((m) => SURV_BY_ID[m]?.stats.med ?? 0));
   let p = Math.max(0.03, (0.5 - 0.04 * d.stats.str) * (1 - Math.min(0.4, 0.04 * medic)));
   // 친한 사람이 같이 가면 서로 챙긴다
   if (s && members.some((m) => m !== id && relOf(s, id, m) === 'friend')) p *= 0.85;
-  return p;
+  if (s) {
+    p *= rationDeathMult(s, now);
+    if (catComplete(s, 'medical')) p *= 0.9;
+  }
+  return Math.min(0.95, p);
 }
 
-export function previewExpedition(s: State, zoneId: string, members: string[]): Preview {
+export function previewExpedition(s: State, zoneId: string, members: string[], now = Date.now()): Preview {
   const zone = ZONE_BY_ID[zoneId];
   let power = 0;
   let guard = 1;
-  let loot = 3 + s.upg.pack + (members.length >= 2 ? 1 : 0);
+  let loot = 3 + s.upg.pack + (members.length >= 2 ? 1 : 0) + (catComplete(s, 'pet') ? 1 : 0);
   for (const id of members) {
     const d = SURV_BY_ID[id];
     if (!d) continue;
@@ -424,7 +488,7 @@ export function previewExpedition(s: State, zoneId: string, members: string[]): 
   const deathIf: Record<string, number> = {};
   let safe = 1;
   for (const id of members) {
-    deathIf[id] = deathChance(id, members, s);
+    deathIf[id] = deathChance(id, members, s, now);
     safe *= 1 - risk * deathIf[id];
   }
   return { ms: expeditionMs(s, zone), risk, loot, power, deathIf, anyDeath: 1 - safe, friends, rivals };
@@ -470,7 +534,7 @@ export function startExpedition(s: State, zoneId: string, members: string[], now
   if (new Set(members).size !== members.length || !members.every((m) => free.has(m))) {
     return { ok: false, error: '지금 나갈 수 없는 사람이 있어요.' };
   }
-  const pv = previewExpedition(s, zoneId, members);
+  const pv = previewExpedition(s, zoneId, members, now);
   const caught = rng() < pv.risk;
   let n = pv.loot;
   if (caught) n = Math.max(1, Math.floor(n / 2));
@@ -479,6 +543,11 @@ export function startExpedition(s: State, zoneId: string, members: string[], now
   for (let i = 0; i < n; i++) items.push(pickItem(s, zone, luck));
   let caps = Math.round((6 + 8 * zone.D) * (0.7 + rng() * 0.6));
   if (caught) caps = Math.floor(caps / 2);
+  const supplies = { food: 0, water: 0, med: 0 } as Record<ResKey, number>;
+  for (const k of Object.keys(zone.supply) as ResKey[]) {
+    const [lo, hi] = zone.supply[k] as [number, number];
+    supplies[k] = Math.round((lo + rng() * (hi - lo)) * (caught ? 0.5 : 1));
+  }
   const deaths: ExpResult['deaths'] = [];
   if (caught) {
     for (const m of members) {
@@ -499,7 +568,7 @@ export function startExpedition(s: State, zoneId: string, members: string[], now
     members: [...members],
     start: now,
     end: now + pv.ms,
-    result: { items, caps, caught, line, deaths },
+    result: { items, caps, caught, line, deaths, supplies },
     notified: false,
   };
   s.exps.push(exp);
@@ -516,6 +585,7 @@ export interface Report {
   firstClear: boolean;
   chapters: { id: string; chapter: number }[];
   rewards: number;
+  supplies: Record<ResKey, number>;
   deaths: { id: string; name: string; title: string; last: string }[];
   /** 친구를 잃고 충격받은 사람들 */
   grief: string[];
@@ -544,13 +614,25 @@ export function claimExpedition(s: State, expId: string, now: number): Report | 
   const firstClear = !s.zoneClears[e.zone];
   if (firstClear) bonusCaps += zone.D * 30;
   s.zoneClears[e.zone] = (s.zoneClears[e.zone] ?? 0) + 1;
+  const sup = { ...(e.result.supplies ?? { food: 0, water: 0, med: 0 }) };
+  sup.med = Math.round(sup.med * (1 + homeBuff(s, now, ['med_yield'])));
+  const cap = PROD.cap + PROD.capLv * s.upg.store;
+  s.res.food = Math.min(cap, s.res.food + sup.food);
+  s.res.water = Math.min(cap, s.res.water + sup.water);
+  s.res.med = Math.min(PROD.medCap, s.res.med + sup.med);
   const total = e.result.caps + bonusCaps;
   s.caps += total;
   s.stats.totalCaps += total;
   s.stats.expeditions += 1;
   if (e.result.caught) {
     s.stats.caught += 1;
-    for (const m of e.members) if (!(e.result.deaths ?? []).some((x) => x.id === m)) s.tired[m] = now + ms(120000);
+    for (const m of e.members) {
+      if ((e.result.deaths ?? []).some((x) => x.id === m)) continue;
+      // 다친 사람은 의약품 2개를 쓰면 빨리 낫는다. 없으면 오래 앓는다.
+      const cure = s.res.med >= 2;
+      if (cure) s.res.med -= 2;
+      s.tired[m] = now + ms(cure ? 120000 : 360000);
+    }
   }
   const deaths: Report['deaths'] = [];
   for (const dd of e.result.deaths ?? []) {
@@ -578,7 +660,57 @@ export function claimExpedition(s: State, expId: string, now: number): Report | 
     r.chapters.forEach((c) => chapters.push({ id: m, chapter: c }));
     rewards += r.reward;
   }
-  return { zone: e.zone, items, caps: e.result.caps, bonusCaps, caught: e.result.caught, line: e.result.line, firstClear, chapters, rewards, deaths, grief: [...grief] };
+  return { zone: e.zone, items, caps: e.result.caps, bonusCaps, caught: e.result.caught, line: e.result.line, firstClear, chapters, rewards, supplies: sup, deaths, grief: [...grief] };
+}
+
+export function setRation(s: State, r: Ration): void {
+  if (r in RATIONS) s.ration = r;
+}
+
+// ---------- 굶주림 위기 ----------
+
+/** 위기 때 내보낼 후보: 가장 쓸모가 적은 사람 (능력치 합이 낮고 호감이 낮은 사람) */
+export function weakestId(s: State): string | null {
+  let best: string | null = null;
+  let bestV = Infinity;
+  for (const id of s.crew) {
+    const d = SURV_BY_ID[id];
+    if (!d) continue;
+    const v = d.stats.str + d.stats.agi + d.stats.med + d.stats.cha + affinity(s, id) / 25;
+    if (v < bestV) {
+      bestV = v;
+      best = id;
+    }
+  }
+  return best;
+}
+
+export type CrisisResult = { ok: true; exiled?: { id: string; last: string }; grief: string[] } | { ok: false };
+
+/** 'exile': 입 하나를 줄인다(추방). 'endure': 모두가 버틴다(호감 -10, 3시간 유예). */
+export function resolveCrisis(s: State, choice: 'exile' | 'endure', now: number): CrisisResult {
+  if (!s.crisis) return { ok: false };
+  s.crisis = false;
+  if (choice === 'endure') {
+    for (const id of s.crew) s.aff[id] = Math.max(0, affinity(s, id) - 10);
+    s.shortMs = Math.max(0, ms(CRISIS_MS) - ms(3 * 3600 * 1000));
+    return { ok: true, grief: [] };
+  }
+  const id = weakestId(s);
+  if (!id) return { ok: true, grief: [] };
+  const grief: string[] = [];
+  const last = '"…알겠어요. 먹을 걸 남겨 줘서 고마웠어요."';
+  s.crew = s.crew.filter((c) => c !== id);
+  s.dead.push({ id, day: dayNumber(s, now), zone: 'exile', last });
+  for (const f of relatives(s, id, 'friend')) {
+    if (!s.crew.includes(f)) continue;
+    grief.push(f);
+    s.aff[f] = Math.max(0, affinity(s, f) - 15);
+  }
+  // 나머지는 호감이 조금 깎인다 (누구 다음일지 모르니까)
+  for (const c of s.crew) if (!grief.includes(c)) s.aff[c] = Math.max(0, affinity(s, c) - 5);
+  s.shortMs = 0;
+  return { ok: true, exiled: { id, last }, grief };
 }
 
 // ---------- 호감도 · 대화 · 선물 ----------
@@ -618,7 +750,7 @@ export function talk(s: State, id: string, now: number): TalkResult {
   const until = s.talkAt[id] ?? 0;
   if (until > now) return { ok: false, wait: until - now };
   s.talkAt[id] = now + ms(60000);
-  const r = addAffinity(s, id, 6);
+  const r = addAffinity(s, id, Math.round(6 * RATIONS[effectiveRation(s)].talk * (catComplete(s, 'culture') ? 1.25 : 1)));
   return { ok: true, line: pickLine(d), ...r };
 }
 
@@ -637,7 +769,7 @@ export function tapSurvivor(s: State, id: string, now: number): TapResult {
     return { line, gained: false, chapters: [], reward: 0 };
   }
   s.tapAt[id] = now + ms(15000);
-  const r = addAffinity(s, id, 1);
+  const r = addAffinity(s, id, RATIONS[effectiveRation(s)].talk > 0 ? 1 : 0);
   return { line, gained: true, ...r };
 }
 
