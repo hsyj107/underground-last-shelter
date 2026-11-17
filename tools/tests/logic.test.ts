@@ -1041,6 +1041,39 @@ test('별명과 명예의 전당', () => {
   assert.equal(g.recordHall(s), false, '끝나지 않았으면 기록하지 않는다');
 });
 
+test('첫날 안내: 단계가 차례로 채워지고 끝나면 보상을 준다', () => {
+  const s = g.newState('a', 0, plain());
+  const done = (): string[] => g.guideSteps(s).filter((x) => x.done).map((x) => x.id);
+  assert.deepEqual(done(), []);
+  const id = join(s, 'cook');
+  assert.deepEqual(done(), ['crew']);
+  // 첫 탐사를 보내면 상인이 일찍 온다
+  s.nextMerchant = 10 * 3600000;
+  const r = g.startExpedition(s, 'mart', ['me'], 1000);
+  assert.ok(r.ok);
+  ev_(s, 1000);
+  assert.ok(s.guide.seeded);
+  assert.ok(s.nextMerchant <= 1000 + 60000);
+  assert.ok(done().includes('send'));
+  // 배낭 열기
+  g.claimExpedition(s, (r as { exp: { id: string } }).exp.id, 400_000);
+  assert.ok(done().includes('bag'));
+  // 역할 정하기
+  assert.ok(g.setRole(s, id, 'guard', 400_000));
+  assert.ok(done().includes('role'));
+  // 상인과 거래
+  s.merchant = { until: 500_000_000, offers: [{ id: 'o1', res: 'food', amount: 5, price: 1, sold: false }] } as g.State['merchant'];
+  const food = s.res.food;
+  assert.ok(e.buyOffer(s, 'o1', 400_000));
+  assert.ok(s.guide.trade);
+  const notes = ev_(s, 400_000);
+  assert.ok(notes.some((n) => n.type === 'guide_done'));
+  assert.ok(s.guide.done);
+  assert.equal(s.res.food, food + 5 + 10);
+  // 두 번 주지 않는다
+  assert.ok(!ev_(s, 400_001).some((n) => n.type === 'guide_done'));
+});
+
 function ev_(s: g.State, now: number): e.Notice[] {
   return e.tickEvents(s, now);
 }

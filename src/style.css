@@ -289,3 +289,6 @@ p.bad { color: var(--bad); }
 .tier-skilled { color: #8ac0e8; } .tier-expert { color: #f0c860; } .tier-niche { color: #c9a8e8; }
 
 .cutaway { display: block; width: 100%; image-rendering: pixelated; border: 2px solid #000; margin: 6px 0 8px; background: #1c1511; }
+.guide { list-style: none; margin: 4px 0 6px; padding: 0; line-height: 1.7; }
+.guide li.ok { opacity: .55; text-decoration: line-through; }
+.tip h3 small { font-weight: 400; opacity: .7; margin-left: 4px; }

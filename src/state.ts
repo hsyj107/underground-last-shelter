@@ -140,8 +140,18 @@ export interface HallEntry {
   at: number;
 }
 
+/** 첫날 안내 (가벼운 튜토리얼) */
+export interface Guide {
+  done: boolean;
+  /** 첫 탐사를 보낸 뒤 상인을 일찍 부른 적이 있는지 */
+  seeded: boolean;
+  /** 상인과 한 번이라도 거래했는지 */
+  trade: boolean;
+}
+
 export interface State {
   v: 2;
+  guide: Guide;
   /** 생존자별 역할. 없으면 탐사조 */
   role: Record<string, Role>;
   /** 병든 사람과 치료 제한 시각 */
@@ -248,6 +258,7 @@ export function newState(name: string, now: number, cr: Creation = defaultCreati
   registerPlayer(player);
   const st: State = {
     v: 2,
+    guide: { done: false, seeded: false, trade: false },
     role: {},
     sick: {},
     over: null,
@@ -294,6 +305,25 @@ export function newState(name: string, now: number, cr: Creation = defaultCreati
   };
   for (const [k, lv] of Object.entries(j.start.upg ?? {})) st.upg[k as UpgKey] = lv as number;
   return st;
+}
+
+// ---------- 첫날 안내 ----------
+
+export interface GuideStep {
+  id: string;
+  label: string;
+  hint: string;
+  done: boolean;
+}
+
+export function guideSteps(s: State): GuideStep[] {
+  return [
+    { id: 'crew', label: '첫 동료 맞이하기', hint: '문 앞에 사람이 오면 눌러서 이야기를 들어 보세요', done: s.crew.length >= 1 },
+    { id: 'send', label: '탐사 보내기', hint: '탐사 탭에서 동네 슈퍼마트로 보내 보세요', done: s.exps.length > 0 || s.stats.expeditions > 0 },
+    { id: 'bag', label: '돌아온 배낭 열기', hint: '배낭을 눌러야 물자가 비축에 들어와요', done: s.stats.expeditions > 0 },
+    { id: 'role', label: '맡은 일 정해 주기', hint: '생존자 탭에서 방어조·생산조를 골라 보세요', done: s.crew.some((id) => (s.role[id] ?? 'scout') !== 'scout') },
+    { id: 'trade', label: '떠돌이 상인과 거래하기', hint: '곧 상인이 지나가요. 병마개로 물자를 사 보세요', done: s.guide.trade },
+  ];
 }
 
 // ---------- 조회 ----------
@@ -1277,7 +1307,10 @@ export function loadState(): State | null {
     const d = JSON.parse(raw) as Partial<State>;
     if (d.v !== 2 || typeof d.created !== 'number') return null;
     const base = newState(d.name ?? '관리자', d.created);
-    const st = { ...base, ...d, upg: { ...base.upg, ...(d.upg ?? {}) }, stats: { ...base.stats, ...(d.stats ?? {}) }, log: { ...base.log, ...(d.log ?? {}) }, rep: { ...base.rep, ...(d.rep ?? {}) } } as State;
+    const st = { ...base, ...d, upg: { ...base.upg, ...(d.upg ?? {}) }, stats: { ...base.stats, ...(d.stats ?? {}) }, log: { ...base.log, ...(d.log ?? {}) }, rep: { ...base.rep, ...(d.rep ?? {}) },
+      // 예전 저장본은 이미 한참 한 사람이니 안내를 건너뛴다
+      guide: d.guide ? { ...base.guide, ...d.guide } : { ...base.guide, done: true },
+    } as State;
     resetRegistry();
     registerPlayer(st.player);
     for (const p of Object.values(st.people)) {

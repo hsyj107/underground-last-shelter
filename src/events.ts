@@ -20,6 +20,7 @@ import {
   relatives,
   affinity,
   startExpedition,
+  guideSteps,
 } from './state.ts';
 import type { State, StartResult } from './state.ts';
 
@@ -241,6 +242,7 @@ export function buyOffer(s: State, offerId: string, now: number): boolean {
   if (!o || o.sold || s.caps < o.price) return false;
   s.caps -= o.price;
   o.sold = true;
+  s.guide.trade = true;
   s.res[o.res] += o.amount;
   s.rep.market = Math.min(5, s.rep.market + 0.5);
   return true;
@@ -254,6 +256,7 @@ export function sellRes(s: State, k: 'food' | 'water', now: number, n = 10): num
   s.res[k] -= n;
   const price = Math.max(1, Math.round(n * (k === 'food' ? 0.5 : 0.4) * (2 - marketMult(s))));
   s.caps += price;
+  s.guide.trade = true;
   return price;
 }
 
@@ -375,7 +378,8 @@ export type Notice =
   | { type: 'sick'; id: string }
   | { type: 'sick_death'; gone: Gone }
   | { type: 'rescue' }
-  | { type: 'rescue_lost' };
+  | { type: 'rescue_lost' }
+  | { type: 'guide_done' };
 
 const later = (hours: number): number => ms((hours + 0) * HOUR);
 
@@ -384,6 +388,21 @@ export function tickEvents(s: State, now: number): Notice[] {
   const out: Notice[] = [];
   if (s.over) return out;
   const day = dayNumber(s, now);
+
+  // 첫날 안내: 첫 탐사를 보내면 상인이 금방 지나가게 해서 기다리는 시간을 채운다
+  if (!s.guide.done) {
+    if (!s.guide.seeded && s.exps.length > 0) {
+      s.guide.seeded = true;
+      if (!s.merchant) s.nextMerchant = Math.min(s.nextMerchant, now + ms(60000));
+    }
+    if (guideSteps(s).every((g) => g.done)) {
+      s.guide.done = true;
+      s.res.food += 10;
+      s.res.water += 10;
+      s.res.med += 2;
+      out.push({ type: 'guide_done' });
+    }
+  }
 
   // 습격
   if (s.raid && now >= s.raid.deadline) {

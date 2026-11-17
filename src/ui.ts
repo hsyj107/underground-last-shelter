@@ -81,6 +81,7 @@ import {
   roleOf,
   ROLES,
   setRole,
+  guideSteps,
   isSick,
   defense,
   nickname,
@@ -374,11 +375,12 @@ function homeHtml(): string {
   const now = Date.now();
   let h = '';
 
-  if (S.stats.expeditions === 0 && S.exps.length === 0) {
-    h += `<section class="card tip"><h3>💡 처음이라면</h3>
-      <p>1. <b>탐사</b> 탭에서 '동네 슈퍼마트'로 당신을 보내 보세요.<br>
-      2. 돌아온 배낭을 열면 식량·물·약이 <b>비축</b>에 더해지고, 물건은 <b>선반</b> 도감에 채워집니다.<br>
-      3. 사람이 늘수록 더 많이 먹어요. 비축이 바닥나면 누군가를 내보내야 할 수도 있어요.</p></section>`;
+  if (!S.guide.done) {
+    const steps = guideSteps(S);
+    const left = steps.filter((g) => !g.done);
+    h += `<section class="card tip"><h3>🧭 첫날 할 일 <small>${steps.length - left.length}/${steps.length}</small></h3><ul class="guide">`;
+    for (const g of steps) h += `<li class="${g.done ? 'ok' : ''}">${g.done ? '✅' : '⬜'} ${g.label}</li>`;
+    h += `</ul><p class="dim">${left[0]?.hint ?? ''}</p></section>`;
   }
 
   h += `<section class="card"><h3>🎒 탐사 현황</h3>`;
@@ -1366,6 +1368,7 @@ function handleNotices(notes: Notice[]): void {
     if (n.type === 'sick_death') showOrQueue('sickdead', `<h2>🕯 병을 이기지 못했다</h2><div class="lost">${pt(n.gone.id, 'pt sm', true)}<span><b>${n.gone.name}</b> <small>${n.gone.title}</small><i>${n.gone.last}</i></span></div><button class="btn primary wide" data-act="close">…</button>`);
     if (n.type === 'rescue') toast('📡 구조 신호가 잡혔다', 'warm');
     if (n.type === 'rescue_lost') toast('📡 신호가 끊겼다…', 'bad');
+    if (n.type === 'guide_done') toast('🧭 첫날 할 일을 모두 마쳤다! 식량·식수 +10, 의약품 +2', 'warm');
   }
   if (notes.length) {
     saveState(S);
