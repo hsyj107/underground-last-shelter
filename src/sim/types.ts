@@ -34,6 +34,10 @@ export interface Survivor {
   /** 배치된 시설 */
   post: FacilityId | null;
   exception: Exception;
+  /** 나이(년). 게임 안의 365일마다 1살 */
+  age: number;
+  /** 정착지에 합류한 날 */
+  joined: number;
   /** 네임드: 사연과 유언 */
   story?: string;
   last?: string;
@@ -53,6 +57,11 @@ export interface Obituary {
   named: boolean;
   cause: string;
   last: string;
+  age: number;
+  /** 정착지에서 보낸 일수 */
+  served: number;
+  /** 플레이어가 기억하기로 지정한 사람 */
+  memorial: boolean;
 }
 
 export type LogKind = 'info' | 'good' | 'warn' | 'bad' | 'death';
@@ -89,10 +98,13 @@ export interface Pending {
 }
 
 export interface Game {
-  version: 3;
+  version: 4;
   day: number;
-  /** 게임 오버 정보 (진행 중이면 null) */
-  over: { cause: string; summary: string; recorded?: boolean } | null;
+  /** 실제 시간 → 게임 시간 (⚠ 임시 값: dayMs) */
+  clock: { last: number; carry: number; dayMs: number };
+  /** 정착지 연대기: 붕괴와 재건의 기록 */
+  chronicle: { day: number; text: string }[];
+  collapses: number;
   commander: Commander;
   tally: Tally;
   title: string;

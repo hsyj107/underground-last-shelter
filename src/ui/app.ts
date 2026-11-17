@@ -3,10 +3,11 @@ import {
 } from '../sim/data';
 import {
   alive, assign, atBunker, byId, capacity, dangerLabel, endDay, facilityState, forecast, newGame, resLabel,
-  resolveSerum, setException, setPolicy, startExpedition, unlockConditions, unlockFacility, upgradeFacility,
+  resolveSerum, setException, setMemorial, setPolicy, startExpedition, unlockConditions, unlockFacility, upgradeFacility,
   workersOf, type ActionResult,
 } from '../sim/engine';
-import { clearGame, loadGame, loadHistory, pushHistory, saveGame } from '../sim/save';
+import { DAY_MS, msToNextDay, tick } from '../sim/clock';
+import { loadGame, saveGame } from '../sim/save';
 import { RES_KEYS, type Exception, type FacilityId, type Game, type LogEntry, type Survivor } from '../sim/types';
 
 /**
@@ -153,7 +154,7 @@ function crewCard(g: Game, s: Survivor): string {
   return `<div class="card tap ${open ? 'on' : ''}" data-act="crew" data-arg="${s.id}">
     <div class="card-head">${portrait(s)}<div class="card-main">
       <div class="title">${esc(s.name)}<span class="tag ${s.named ? 'named' : ''}">${s.named ? '네임드' : '일반'}</span>${statusTag(s)}${ex}</div>
-      <div class="sub">${JOB_LABEL[s.job]} · ${esc(s.trait)} · ${s.status === 'away' ? '원정 중' : facName(s.post)}</div>
+      <div class="sub">${JOB_LABEL[s.job]} · ${Math.floor(s.age)}세 · ${esc(s.trait)} · ${s.status === 'away' ? '원정 중' : facName(s.post)}</div>
       ${bar('체력', s.hp, 'low')}${bar('스트레스', s.stress, 'high')}${bar('충성도', s.loyalty, 'low')}
     </div></div>${detail}</div>`;
 }
@@ -242,11 +243,21 @@ function viewPolicy(g: Game): string {
       <p class="note" style="margin:6px 0 0">별명은 누적된 선택으로 판독됩니다. (7일차부터)</p></div>`;
 }
 
+function obitCard(o: Game['obituaries'][number], i: number): string {
+  const star = o.memorial ? '★ ' : '';
+  return `<div class="obit"><b>${star}D${o.day} ${esc(o.name)}</b> (${JOB_LABEL[o.job]}${o.named ? ' · 네임드' : ''} · ${o.age}세 · ${o.served}일 함께함) — ${esc(o.cause)}
+    <div class="quote">마지막 기록: "${esc(o.last)}"</div>
+    <button class="btn sm ghost" data-act="memorial" data-arg="${i}">${o.memorial ? '기억 해제' : '기억하기'}</button></div>`;
+}
+
 function viewRec(g: Game): string {
-  const ob = [...g.obituaries].reverse().map((o) => `<div class="obit"><b>D${o.day} ${esc(o.name)}</b> (${JOB_LABEL[o.job]}${o.named ? ' · 네임드' : ''}) — ${esc(o.cause)}<div class="quote">마지막 기록: "${esc(o.last)}"</div></div>`).join('') || '<p class="note">아직 사망자가 없습니다.</p>';
-  const hist = loadHistory().map((r) => `<div class="card"><b>${esc(r.nickname)}</b> — ${esc(r.title)}<div class="sub">${r.days}일 생존 · 사망 ${r.deaths}명 · ${esc(r.cause)} · ${esc(r.date)}</div></div>`).join('') || '<p class="note">지난 기록이 없습니다.</p>';
+  const idx = g.obituaries.map((o, i) => ({ o, i })).reverse();
+  const kept = idx.filter((x) => x.o.memorial).map((x) => obitCard(x.o, x.i)).join('');
+  const rest = idx.filter((x) => !x.o.memorial).map((x) => obitCard(x.o, x.i)).join('');
+  const chron = [...g.chronicle].reverse().map((c) => `<div><span class="d">D${c.day}</span> ${esc(c.text)}</div>`).join('');
   const log = [...g.log].slice(-60).reverse().map(logLine).join('');
-  return `<h2>사망 일지</h2>${ob}<h2>역사 기록</h2>${hist}<h2>전체 로그</h2><div class="log">${log}</div>`;
+  return `<h2>전몰자 기록 (${g.obituaries.length}명)</h2>${kept}${rest || (kept ? '' : '<p class="note">아직 사망자가 없습니다.</p>')}
+    <h2>정착지 연대기</h2><div class="log">${chron}</div><h2>전체 로그</h2><div class="log">${log}</div>`;
 }
 
 // ───────── 창 ─────────
@@ -265,9 +276,9 @@ function bootModal(): string {
     <button class="btn" style="margin-top:12px" data-act="start">접속</button></div></div>`;
 }
 
-function reportModal(day: number, entries: LogEntry[]): string {
+function reportModal(title: string, entries: LogEntry[], note = ''): string {
   const rows = entries.map((e, i) => `<div class="fade-in ${e.kind === 'bad' || e.kind === 'death' ? 'bad' : e.kind === 'good' ? 'good' : e.kind === 'warn' ? 'warn' : ''}" style="--i:${i}">&gt; ${esc(e.text)}</div>`).join('') || '<div class="dim">특이 사항 없음.</div>';
-  return `<div class="modal"><div class="modal-box"><h1>DAY ${day} 정산 보고</h1><div class="log">${rows}</div>
+  return `<div class="modal"><div class="modal-box"><h1>${esc(title)}</h1>${note ? `<p class="note">${esc(note)}</p>` : ''}<div class="log">${rows}</div>
     <button class="btn" style="margin-top:14px" data-act="closeModal">확인</button></div></div>`;
 }
 
@@ -283,17 +294,6 @@ function decisionModal(g: Game): string {
     <p class="note">누군가를 사지로 보내야 합니다. 성공 확률은 약 50% 안팎이며, 실패하면 파견된 사람과 ${esc(ace.name)} 모두 잃게 됩니다.</p>
     <h2>누구를 보내겠습니까</h2>${list}
     <button class="btn ghost red" style="margin-top:10px" data-act="serum" data-arg="">${esc(ace.name)}을(를) 포기한다</button></div></div>`;
-}
-
-function overModal(g: Game): string {
-  const o = g.over!;
-  return `<div class="modal"><div class="modal-box"><h1 class="bad">[ 신호 두절 ]</h1>
-    <div class="card"><div class="title">${esc(g.commander.nickname)} — ${esc(g.title)}</div>
-    <div class="sub">${g.day}일 생존 · 사망 ${g.obituaries.length}명</div>
-    <p style="margin-top:8px" class="bad">${esc(o.cause)}: ${esc(o.summary)}</p></div>
-    <p class="note">이 기록은 역사 기록에 남았습니다.</p>
-    <h2>마지막 사망 일지</h2>${[...g.obituaries].slice(-3).reverse().map((x) => `<div class="obit"><b>D${x.day} ${esc(x.name)}</b> — ${esc(x.cause)}<div class="quote">"${esc(x.last)}"</div></div>`).join('') || '<p class="note">기록 없음.</p>'}
-    <button class="btn" style="margin-top:12px" data-act="newrun">새 회차 시작</button></div></div>`;
 }
 
 // ───────── 그리기 ─────────
@@ -314,13 +314,20 @@ function render(): void {
     case 'policy': body = viewPolicy(g); break;
     case 'rec': body = viewRec(g); break;
   }
-  const lock = g.pending !== null;
   root.innerHTML = `<div class="crt">${header(g)}${tabs(g)}<main class="view">${body}</main>
-    <footer class="foot"><button class="btn" data-act="endday" ${g.over ? 'disabled' : ''}>${lock ? '⚠ 결정 필요' : `하루 진행 ▶ (DAY ${g.day} → ${g.day + 1})`}</button></footer>
-    ${modal === 'report' || modal === 'decision' || modal === 'over' ? modalHtml : ''}
+    <footer class="foot"><div class="clock" id="clock">${clockText(g)}</div>
+      <button class="btn sm ghost" data-act="endday" title="시험용">⏩ 시험용: 하루 즉시 진행</button></footer>
+    ${modal === 'report' || modal === 'decision' ? modalHtml : ''}
     ${ui.toast ? `<div class="toast">${esc(ui.toast)}</div>` : ''}</div>`;
   const view = root.querySelector('.view');
   if (view) view.scrollTop = keep;
+}
+
+function clockText(g: Game): string {
+  if (g.pending) return '⚠ 결정 필요 — 시간 정지 중';
+  const sec = Math.ceil(msToNextDay(g, Date.now()) / 1000);
+  const m = Math.floor(sec / 60);
+  return `DAY ${g.day} → ${g.day + 1} · ${m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분 ${sec % 60}초`} 후`;
 }
 
 function showToast(msg: string): void {
@@ -340,24 +347,33 @@ function result(r: ActionResult): void {
 
 function refreshModal(): void {
   if (!game) return;
-  if (game.over) {
-    if (!game.over.recorded) {
-      game.over.recorded = true;
-      pushHistory({
-        nickname: game.commander.nickname, title: game.title, days: game.day, cause: game.over.cause,
-        deaths: game.obituaries.length, date: new Date().toISOString().slice(0, 10),
-      });
-      saveGame(game);
-    }
-    modal = 'over';
-    modalHtml = overModal(game);
-  } else if (game.pending) {
+  if (game.pending) {
     modal = 'decision';
     modalHtml = decisionModal(game);
   } else if (modal !== 'report') {
     modal = null;
     modalHtml = '';
   }
+}
+
+/** 시간이 흐른 만큼 정산하고, 자리를 비운 동안의 일이나 붕괴는 보고 창으로 알린다 */
+function advance(): void {
+  if (!game) return;
+  const before = game.collapses;
+  const r = tick(game, Date.now());
+  if (r.days === 0) return;
+  saveGame(game);
+  const collapsed = game.collapses > before;
+  if (r.away || collapsed) {
+    const title = collapsed ? '정착지 붕괴 보고' : `복귀 보고 (${r.days}일 경과)`;
+    const note = r.capped ? '접속하지 않은 시간이 길어 일부는 계산하지 않았습니다.' : '';
+    modal = 'report';
+    modalHtml = reportModal(title, r.entries, note);
+  } else {
+    showToast(`DAY ${game.day} 정산 완료`);
+  }
+  refreshModal();
+  render();
 }
 
 // ───────── 조작 ─────────
@@ -378,7 +394,7 @@ function act(name: string, arg: string): void {
       return;
     }
     const b = BACKGROUNDS[ui.bg];
-    game = newGame({ nickname: nick, background: b.name, command: b.command, logistics: b.logistics, analysis: b.analysis });
+    game = newGame({ nickname: nick, background: b.name, command: b.command, logistics: b.logistics, analysis: b.analysis }, Math.random, Date.now(), dayMsSetting());
     ui.toast = '';
     modal = null;
     ui.tab = 'status';
@@ -438,33 +454,36 @@ function act(name: string, arg: string): void {
         refreshModal();
         break;
       }
+      const before = g.collapses;
       const day = g.day;
       const r = endDay(g);
+      g.clock.last = Date.now();
+      g.clock.carry = 0;
       saveGame(g);
-      if (g.over) {
-        modal = null;
-        refreshModal();
-      } else {
-        modal = 'report';
-        modalHtml = reportModal(day, r.entries);
-      }
+      modal = 'report';
+      modalHtml = reportModal(g.collapses > before ? '정착지 붕괴 보고' : `DAY ${day} 정산 보고`, r.entries);
+      refreshModal();
       break;
     }
-    case 'newrun':
-      clearGame();
-      game = null;
-      ui.nick = '';
-      modal = 'boot';
-      break;
+    case 'memorial': return result(setMemorial(g, Number(arg)));
   }
   render();
+}
+
+/** ⚠ 시험용: 주소에 ?dayms=30000 을 붙이면 게임 하루가 30초가 된다 */
+function dayMsSetting(): number {
+  const q = Number(new URLSearchParams(window.location.search).get('dayms'));
+  return Number.isFinite(q) && q >= 1000 ? q : DAY_MS;
 }
 
 export function startApp(el: HTMLElement): void {
   root = el;
   game = loadGame();
   if (!game) modal = 'boot';
-  else refreshModal();
+  else {
+    game.clock.dayMs = dayMsSetting();
+    refreshModal();
+  }
   root.addEventListener('click', (ev) => {
     const target = (ev.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
     if (!target) return;
@@ -474,4 +493,14 @@ export function startApp(el: HTMLElement): void {
     act(target.dataset.act ?? '', target.dataset.arg ?? '');
   });
   render();
+  advance();
+  window.setInterval(() => {
+    if (!game) return;
+    advance();
+    const c = root.querySelector('#clock');
+    if (c) c.textContent = clockText(game);
+  }, 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) advance();
+  });
 }

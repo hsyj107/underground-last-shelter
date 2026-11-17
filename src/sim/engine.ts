@@ -1,5 +1,5 @@
 import {
-  AREAS, FACILITY_DEFS, MAX_FACILITY_LEVEL, RATION_BASE, RECRUIT_NAMED, STARTING_NAMED, TITLES, bedCapacity,
+  AREAS, DAY_MS, YEAR_DAYS, FACILITY_DEFS, MAX_FACILITY_LEVEL, RATION_BASE, RECRUIT_NAMED, STARTING_NAMED, TITLES, bedCapacity,
   fromSeed, lastWords, makeNormal, upgradeCost, xpToNext, type AreaDef, type FacilityDef,
 } from './data';
 import {
@@ -17,22 +17,27 @@ const facilityDef = (id: FacilityId): FacilityDef => FACILITY_DEFS.find((f) => f
 
 // ───────── 새 게임 ─────────
 
-export function newGame(commander: Pick<Commander, 'nickname' | 'background' | 'command' | 'logistics' | 'analysis'>, rng: Rng = Math.random): Game {
+export function newGame(
+  commander: Pick<Commander, 'nickname' | 'background' | 'command' | 'logistics' | 'analysis'>,
+  rng: Rng = Math.random, now: number = Date.now(), dayMs: number = DAY_MS,
+): Game {
   const facilities = {} as Record<FacilityId, number>;
   for (const f of FACILITY_DEFS) facilities[f.id] = f.unlock === null ? 1 : 0;
 
   const han = fromSeed(STARTING_NAMED[0]);
   const choi = fromSeed(STARTING_NAMED[1]);
-  const a = makeNormal('s1', rng, 'laborer');
-  const b = makeNormal('s2', rng, 'farmer');
+  const a = makeNormal('s1', rng, 'laborer', 1);
+  const b = makeNormal('s2', rng, 'farmer', 1);
   han.post = 'power_plant';
   a.post = 'water_purifier';
   b.post = 'farm';
 
   return {
-    version: 3,
+    version: 4,
     day: 1,
-    over: null,
+    clock: { last: now, carry: 0, dayMs },
+    chronicle: [{ day: 1, text: '정착지 가동 시작.' }],
+    collapses: 0,
     commander: { ...commander, level: 1, xp: 0 },
     tally: { ruthless: 0, mercy: 0, efficient: 0, idleDays: 0 },
     title: '신임 관리자',
@@ -329,7 +334,7 @@ export interface DayResult {
 
 export function endDay(g: Game, rng: Rng = Math.random): DayResult {
   const entries: LogEntry[] = [];
-  if (g.over || g.pending) return { entries, decision: false };
+  if (g.pending) return { entries, decision: false };
   const say = (kind: LogKind, text: string): void => {
     const e: LogEntry = { day: g.day, kind, text };
     entries.push(e);
@@ -343,7 +348,7 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
     s.status = 'dead';
     s.post = null;
     delete g.critical[s.id];
-    g.obituaries.push({ day: g.day, name: s.name, job: s.job, named: s.named, cause, last });
+    g.obituaries.push({ day: g.day, name: s.name, job: s.job, named: s.named, cause, last, age: Math.floor(s.age), served: g.day - s.joined, memorial: false });
     say('death', `[사망] ${s.name} — ${cause}. 마지막 기록: "${last}"`);
     deathsToday.push(s);
   };
@@ -441,12 +446,17 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
     const low = !isAce(s) && s.skill <= 2;
     const ace = isAce(s);
 
+    // 노화: 나이가 들수록 체력 상한이 내려가고 병에 약해진다 (⚠ 임시 수치)
+    s.age += 1 / YEAR_DAYS;
+    const hpMax = Math.max(40, 100 - Math.max(0, s.age - 60) * 1.5);
+    const agePenalty = Math.max(0, s.age - 55) * 0.002;
+
     // 체력
     if (s.status === 'critical') {
       // 치명적 질병: 체력은 유지, 기한 안에 치료하지 못하면 사망 (아래에서 처리)
     } else {
       const deficit = (1 - rf) * 8 + (1 - rw) * 12;
-      s.hp = clamp(s.hp + (deficit <= 0 ? 2 : -deficit), 0, 100);
+      s.hp = clamp(s.hp + (deficit <= 0 ? 2 : -deficit), 0, hpMax);
       if (s.status === 'sick') s.hp = clamp(s.hp - 5, 0, 100);
       if (s.status === 'injured') s.hp = clamp(s.hp + 3, 0, 100);
       if (s.status === 'injured' && s.hp >= 70) s.status = 'ok';
@@ -455,7 +465,7 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
         say('good', `${s.name}: 자연 회복.`);
       }
       // 발병
-      const sickChance = 0.02 + 0.05 * (1 - Math.min(rf, rw)) + (g.policy === 'emergency' ? 0.03 : 0) + (s.stress >= 70 ? 0.02 : 0);
+      const sickChance = 0.02 + 0.05 * (1 - Math.min(rf, rw)) + (g.policy === 'emergency' ? 0.03 : 0) + (s.stress >= 70 ? 0.02 : 0) + agePenalty;
       if (s.status === 'ok' && rng() < sickChance) {
         s.status = 'sick';
         say('warn', `${s.name}: 발열·기침 증세. 질병 의심.`);
@@ -502,6 +512,11 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
     }
   }
 
+  // 7b. 노령 사망: 고령에만 아주 낮은 확률로 시작해 천천히 올라간다
+  for (const s of atBunker(g)) {
+    if (s.age >= 70 && rng() < 0.00002 * (s.age - 69) ** 2) kill(s, '노령');
+  }
+
   // 8. 야반도주
   for (const s of atBunker(g)) {
     if (s.stress >= 90 && s.loyalty <= 25 && rng() < 0.35) {
@@ -511,7 +526,7 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
       for (const k of RES_KEYS) g.stock[k] -= loot[k] ?? 0;
       s.status = 'dead';
       s.post = null;
-      g.obituaries.push({ day: g.day, name: s.name, job: s.job, named: s.named, cause: '야반도주 (자원 탈취)', last: '(기록 없음)' });
+      g.obituaries.push({ day: g.day, name: s.name, job: s.job, named: s.named, cause: '야반도주 (자원 탈취)', last: '(기록 없음)', age: Math.floor(s.age), served: g.day - s.joined, memorial: false });
       say('bad', `[이탈] ${s.name}이(가) 식량·식수·고철을 챙겨 야반도주했습니다.`);
       deathsToday.push(s);
     }
@@ -552,16 +567,15 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
     say('info', `단말기 판독: 사령관 성향 "${title}" — ${TITLES[title].passive}`);
   }
 
-  // 11. 게임 오버
+  // 11. 붕괴: 전멸하거나 폭동이 나면 정착지가 무너지고 폐허에서 재건한다
   const here = atBunker(g);
   const rebels = here.filter((s) => s.stress >= 85 && s.loyalty <= 30).length;
   if (alive(g).length === 0) {
-    g.over = { cause: '전멸', summary: '생존자 전원 사망. 벙커의 불이 꺼졌습니다.' };
-  } else if (here.length >= 3 && rebels >= Math.max(2, Math.ceil(here.length / 2))) {
-    g.over = { cause: '폭동', summary: '착취와 불신이 폭동으로 번졌습니다. 사령관은 벙커 밖으로 추방됐습니다.' };
+    collapse(g, '전멸', '생존자 전원 사망. 벙커의 불이 꺼졌습니다.', say, rng);
+    return { entries, decision: false };
   }
-  if (g.over) {
-    say('bad', `[게임 오버] ${g.over.cause}: ${g.over.summary}`);
+  if (here.length >= 3 && rebels >= Math.max(2, Math.ceil(here.length / 2))) {
+    collapse(g, '폭동', '착취와 불신이 폭동으로 번졌습니다. 생존자들이 벙커를 떠났습니다.', say, rng);
     return { entries, decision: false };
   }
 
@@ -578,9 +592,9 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
     }
   }
 
-  if (g.survivors.length > 0 && atBunker(g).length === 0 && g.expeditions.length === 0 && !g.serum) {
-    g.over = { cause: '전멸', summary: '벙커에 남은 인원이 없습니다.' };
-    say('bad', '[게임 오버] 전멸');
+  if (atBunker(g).length === 0 && g.expeditions.length === 0 && !g.serum) {
+    collapse(g, '전멸', '벙커에 남은 인원이 없습니다.', say, rng);
+    return { entries, decision: false };
   }
   return { entries, decision: g.pending !== null };
 }
@@ -646,10 +660,10 @@ function resolveExpedition(
   let rescue = '';
   if (waiting.length > 0 && (first || rng() < 0.35)) {
     const seed = RECRUIT_NAMED[waiting[0]];
-    found = fromSeed(seed);
+    found = fromSeed(seed, g.day);
     rescue = seed.rescue;
   } else if (rng() < area.recruit) {
-    found = makeNormal(`s${g.nextId}`, rng);
+    found = makeNormal(`s${g.nextId}`, rng, undefined, g.day);
     g.nextId += 1;
     rescue = '폐허에서 홀로 버티던 생존자.';
   }
@@ -661,4 +675,48 @@ function resolveExpedition(
       say('good', `[신규 생존자] ${found.name} (${found.named ? '네임드' : '일반'}) — ${rescue}`);
     }
   }
+}
+
+// ───────── 붕괴와 재건 ─────────
+
+/**
+ * 정착지가 무너진다. 죽은 사람의 기록(전몰자 기록)과 연대기는 그대로 남고,
+ * 폐허에서 소수의 새 생존자와 함께 다시 시작한다. (⚠ 재건 수치는 임시)
+ */
+function collapse(g: Game, cause: string, summary: string, say: (k: LogKind, t: string) => void, rng: Rng): void {
+  say('bad', `[붕괴] ${cause}: ${summary}`);
+  for (const s of alive(g)) {
+    g.obituaries.push({
+      day: g.day, name: s.name, job: s.job, named: s.named, cause: `${cause} 후 이탈`, last: '(기록 없음)',
+      age: Math.floor(s.age), served: g.day - s.joined, memorial: false,
+    });
+  }
+  g.collapses += 1;
+  g.chronicle.push({ day: g.day, text: `${cause}: ${summary}` });
+  g.stock = { food: 20, water: 20, power: 40, medicine: 0, scrap: 30 };
+  for (const f of FACILITY_DEFS) g.facilities[f.id] = Math.max(f.unlock === null ? 1 : 0, g.facilities[f.id] - 2);
+  g.expeditions = [];
+  g.serum = null;
+  g.pending = null;
+  g.critical = {};
+  g.survivors = [];
+  const crew: [FacilityId, 'engineer' | 'laborer' | 'farmer'][] = [['power_plant', 'engineer'], ['water_purifier', 'laborer'], ['farm', 'farmer']];
+  for (const [post, job] of crew) {
+    const s = makeNormal(`s${g.nextId}`, rng, job, g.day);
+    g.nextId += 1;
+    s.post = post;
+    g.survivors.push(s);
+  }
+  g.touched = true;
+  const entry = { day: g.day, text: '폐허 속에서 생존자 3명이 모여 정착지를 다시 일으킵니다.' };
+  g.chronicle.push(entry);
+  say('info', `[재건] ${entry.text} 시설 일부가 파손되어 규모가 줄었습니다.`);
+}
+
+/** 기억할 사람으로 지정하거나 해제한다 */
+export function setMemorial(g: Game, index: number): ActionResult {
+  const o = g.obituaries[index];
+  if (!o) return { ok: false, message: '기록이 없습니다.' };
+  o.memorial = !o.memorial;
+  return { ok: true, message: o.memorial ? `${o.name}을(를) 기억하기로 했습니다.` : '지정을 해제했습니다.' };
 }

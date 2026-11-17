@@ -130,7 +130,20 @@ export const AREAS: AreaDef[] = [
   },
 ];
 
-type NamedSeed = Omit<Survivor, 'hp' | 'stress' | 'loyalty' | 'status' | 'post' | 'exception'>;
+type NamedSeed = Omit<Survivor, 'hp' | 'stress' | 'loyalty' | 'status' | 'post' | 'exception' | 'age' | 'joined'>;
+
+/**
+ * 실제 시간 → 게임 시간.
+ * ⚠ 임시 값: 현실 1시간 = 게임 1일. 주소에 ?dayms=30000 처럼 붙이면 시험용으로 바꿀 수 있다.
+ */
+export const DAY_MS = 3_600_000;
+/** 게임 안의 1년 (일) */
+export const YEAR_DAYS = 365;
+
+/** 네임드 생존자의 나이 (⚠ 임시) */
+const NAMED_AGE: Record<string, number> = {
+  n_han: 52, n_choi: 41, n_park: 29, n_kang: 38, n_ma: 45, n_yun: 68, n_go: 57, n_lee: 31,
+};
 
 /** 처음부터 함께하는 네임드 2명 */
 export const STARTING_NAMED: NamedSeed[] = [
@@ -203,7 +216,7 @@ const SPRITES = ['c_hijab', 'c_woman2', 'c_man_red', 'c_strong', 'c_big', 'c_bea
 const pick = <T,>(list: T[], rng: () => number): T => list[Math.floor(rng() * list.length)];
 
 /** 일반 생존자를 한 명 만든다. */
-export function makeNormal(id: string, rng: () => number, job?: Job): Survivor {
+export function makeNormal(id: string, rng: () => number, job?: Job, day = 1): Survivor {
   return {
     id,
     name: pick(FAMILY, rng) + pick(GIVEN, rng),
@@ -218,11 +231,16 @@ export function makeNormal(id: string, rng: () => number, job?: Job): Survivor {
     status: 'ok',
     post: null,
     exception: null,
+    age: 20 + Math.floor(rng() * 30),
+    joined: day,
   };
 }
 
-export function fromSeed(seed: NamedSeed): Survivor {
-  return { ...seed, hp: 100, stress: 15, loyalty: 70, status: 'ok', post: null, exception: null };
+export function fromSeed(seed: NamedSeed, day = 1): Survivor {
+  return {
+    ...seed, hp: 100, stress: 15, loyalty: 70, status: 'ok', post: null, exception: null,
+    age: NAMED_AGE[seed.id] ?? 35, joined: day,
+  };
 }
 
 // ───────── 유언 (사망 일지) ─────────

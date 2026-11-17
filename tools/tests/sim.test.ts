@@ -1,7 +1,8 @@
 import { AREAS } from '../../src/sim/data';
+import { MAX_CATCHUP_DAYS, msToNextDay, tick } from '../../src/sim/clock';
 import {
   assign, atBunker, byId, endDay, evaluateTitle, facilityState, forecast, newGame, resolveSerum, setException,
-  setPolicy, startExpedition, unlockFacility, upgradeFacility, workersOf,
+  setMemorial, setPolicy, startExpedition, unlockFacility, upgradeFacility, workersOf,
 } from '../../src/sim/engine';
 import type { Game } from '../../src/sim/types';
 
@@ -72,14 +73,17 @@ const fresh = (rng = () => 0.5): Game => newGame({ nickname: '테스트', backgr
   ok(g.tally.ruthless > 5, 'withholding raises ruthless score');
 }
 
-// 식량 고갈: 전원 아사 → 게임 오버
+// 식량 고갈: 전원 아사 → 정착지 붕괴, 기록은 남고 폐허에서 재건
 {
   const g = fresh();
   g.stock.food = 0; g.stock.water = 0;
   for (const s of g.survivors) s.post = null; // 생산 중단
-  for (let i = 0; i < 20 && !g.over; i++) endDay(g, () => 0.9);
-  ok(g.over !== null && g.over.cause === '전멸', 'starvation ends the run: ' + JSON.stringify(g.over));
+  for (let i = 0; i < 20 && g.collapses === 0; i++) endDay(g, () => 0.9);
+  ok(g.collapses === 1, 'starvation collapses the settlement');
   ok(g.obituaries.length === 4, 'all four recorded ' + g.obituaries.length);
+  ok(g.survivors.length === 3 && g.survivors.every((x) => x.status === 'ok'), 'rebuilt with 3 new survivors');
+  ok(g.chronicle.length >= 3 && g.stock.food === 20, 'chronicle and ruined stock');
+  ok(g.obituaries.every((o) => o.served >= 0 && o.age >= 20), 'obituary has age and service days');
 }
 
 // 시설 개방·확장·배치
@@ -177,21 +181,71 @@ const fresh = (rng = () => 0.5): Game => newGame({ nickname: '테스트', backgr
   ok(evaluateTitle(g) === '신임 관리자', 'no title before day 7');
 }
 
-// 폭동 게임 오버
+// 폭동 → 붕괴 → 재건
 {
   const g = fresh();
   for (const s of g.survivors) { s.stress = 95; s.loyalty = 5; }
   endDay(g, () => 0.99);
-  ok(g.over !== null, 'riot or collapse ends run: ' + JSON.stringify(g.over));
+  ok(g.collapses === 1 && g.survivors.length === 3, 'riot collapses and rebuilds');
+  ok(g.obituaries.some((o) => o.cause.includes('폭동')), 'leavers recorded');
+}
+
+// 전몰자 지정
+{
+  const g = fresh();
+  g.obituaries.push({ day: 2, name: '테스트', job: 'guard', named: false, cause: '질병', last: 'x', age: 30, served: 3, memorial: false });
+  ok(setMemorial(g, 0).ok && g.obituaries[0].memorial, 'memorial on');
+  ok(setMemorial(g, 0).ok && !g.obituaries[0].memorial, 'memorial off');
+  ok(!setMemorial(g, 5).ok, 'memorial bad index');
+}
+
+// 노화: 고령은 체력 상한이 내려가고 결국 노령으로 죽는다
+{
+  const g = fresh();
+  const old = g.survivors[2];
+  old.age = 82;
+  for (let i = 0; i < 400 && old.status !== 'dead' && g.collapses === 0; i++) { if (g.pending) resolveSerum(g, null); endDay(g, seq(0.5)); }
+  ok(old.hp <= 100 - (82 - 60) * 1.5 + 1 || old.status === 'dead', 'hp ceiling lowered by age');
+  const young = fresh();
+  const y = young.survivors[3];
+  y.age = 30;
+  for (let i = 0; i < 30; i++) endDay(young, () => 0.9);
+  ok(young.collapses > 0 || y.status === 'dead' || Math.abs(y.age - (30 + 30 / 365)) < 0.01, 'age advances 1/365 per day ' + y.age);
+}
+
+// 시계: 시간이 흐르면 하루가 자동 정산된다
+{
+  const T0 = 1_000_000;
+  const g = newGame({ nickname: 't', background: 'x', command: 5, logistics: 5, analysis: 5 }, () => 0.5, T0, 1000);
+  let r = tick(g, T0 + 500, () => 0.5);
+  ok(r.days === 0 && g.day === 1, 'less than a day: nothing');
+  r = tick(g, T0 + 1500, () => 0.5);
+  ok(r.days === 1 && g.day === 2, 'one day passed live ' + r.days);
+  ok(msToNextDay(g, T0 + 1500) === 1000 - (1500 - 1500 + g.clock.carry) , 'countdown consistent');
+  const idleBefore = g.tally.idleDays;
+  r = tick(g, T0 + 1500 + 3 * 60_000, () => 0.5);
+  ok(r.days === MAX_CATCHUP_DAYS && r.capped && r.away, 'offline catch-up capped at ' + r.days);
+  ok(g.tally.idleDays === idleBefore, 'away days are not counted as idle');
+}
+// 결정 대기 중에는 시계가 멈춘다
+{
+  const T0 = 5_000_000;
+  const g = newGame({ nickname: 't', background: 'x', command: 5, logistics: 5, analysis: 5 }, () => 0.5, T0, 1000);
+  g.pending = { kind: 'serum', aceId: g.survivors[0].id };
+  const r = tick(g, T0 + 10 * 1000, () => 0.5);
+  ok(r.days === 0 && g.day === 1, 'clock paused while a decision is pending');
+  g.pending = null;
+  const r2 = tick(g, T0 + 10 * 1000 + 1000, () => 0.5);
+  ok(r2.days === 1, 'resumes without burst: ' + r2.days);
 }
 
 // 장기 안정성: 아무것도 안 하면 어떻게 되는가 (크래시 없이 종료되는지)
 {
   const g = fresh(Math.random);
   let n = 0;
-  while (!g.over && n < 400) { if (g.pending) resolveSerum(g, null); endDay(g, Math.random); n++; }
-  ok(g.day > 1, 'long run completes without throwing, ended day ' + g.day + ' ' + (g.over?.cause ?? 'alive'));
-  console.log('idle run: day', g.day, g.over?.cause ?? 'still alive', 'deaths', g.obituaries.length, 'title', g.title);
+  while (n < 800) { if (g.pending) resolveSerum(g, null); endDay(g, Math.random); n++; }
+  ok(g.day > 1, 'long run completes without throwing, ended day ' + g.day);
+  console.log('idle run: day', g.day, 'collapses', g.collapses, 'deaths', g.obituaries.length, 'title', g.title);
 }
 void AREAS;
 console.log(failed === 0 ? 'ALL SIM TESTS PASSED' : `${failed} FAILED`);
