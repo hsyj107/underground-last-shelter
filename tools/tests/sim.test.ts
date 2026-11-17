@@ -1,4 +1,4 @@
-import { AREAS } from '../../src/sim/data';
+import { AREAS, makeNormal } from '../../src/sim/data';
 import { MAX_CATCHUP_DAYS, msToNextDay, tick } from '../../src/sim/clock';
 import {
   assign, atBunker, byId, endDay, evaluateTitle, facilityState, forecast, newGame, resolveSerum, setException,
@@ -246,6 +246,24 @@ const fresh = (rng = () => 0.5): Game => newGame({ nickname: '테스트', backgr
   while (n < 800) { if (g.pending) resolveSerum(g, null); endDay(g, Math.random); n++; }
   ok(g.day > 1, 'long run completes without throwing, ended day ' + g.day);
   console.log('idle run: day', g.day, 'collapses', g.collapses, 'deaths', g.obituaries.length, 'title', g.title);
+}
+// 랜덤 생존자: 직업에 맞는 나이·숙련도, 외형 값 부여
+{
+  let laborHigh = 0, laborN = 0, engHigh = 0, engN = 0, scoutOld = 0, bad = 0;
+  for (let i = 0; i < 600; i++) {
+    const l = makeNormal('t' + i, Math.random, 'laborer');
+    const e = makeNormal('e' + i, Math.random, 'engineer');
+    const sc = makeNormal('c' + i, Math.random, 'scout');
+    laborN++; engN++;
+    if (l.skill >= 4) laborHigh++;
+    engHigh += e.skill - l.skill;
+    if (sc.age > 38) scoutOld++;
+    if (l.skill < 1 || l.skill > 5 || !l.look || !e.trait.includes('엔지니어') || l.age < 20) bad++;
+  }
+  ok(bad === 0, 'random survivor fields valid');
+  ok(laborHigh / laborN < 0.15, 'laborers rarely high skill ' + laborHigh / laborN);
+  ok(engHigh / engN > 0.5, 'engineers average higher skill than laborers ' + engHigh / engN);
+  ok(scoutOld === 0, 'scouts are young');
 }
 void AREAS;
 console.log(failed === 0 ? 'ALL SIM TESTS PASSED' : `${failed} FAILED`);

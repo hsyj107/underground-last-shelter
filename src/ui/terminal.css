@@ -541,9 +541,8 @@ input[type='text']:focus {
   height: 36px;
   animation: drift 6s ease-in-out infinite alternate;
 }
-.awaysv img {
+.awaysv .fig {
   height: 100%;
-  image-rendering: pixelated;
 }
 .surf-tag {
   position: absolute;
@@ -587,22 +586,72 @@ input[type='text']:focus {
   font-size: 13px;
   background: repeating-linear-gradient(135deg, #0d0e09 0 8px, #11120c 8px 16px);
 }
+.stack {
+  position: relative;
+}
+.sv-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+/* 층을 잇는 사다리 */
+.shaft {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  transform: translateX(-50%);
+  opacity: 0.55;
+  background:
+    linear-gradient(90deg, #6b5a3a 0 2px, transparent 2px calc(100% - 2px), #6b5a3a calc(100% - 2px)),
+    repeating-linear-gradient(0deg, #6b5a3a 0 2px, transparent 2px 9px);
+}
 .sv {
   position: absolute;
-  bottom: 9%;
   height: 38%;
-  transform: translateX(-50%);
-  transition: left 2.8s linear;
+  transform: translate(-50%, -100%);
+  transition: left 2.8s linear, top 1.6s ease-in-out;
+  pointer-events: auto;
   cursor: pointer;
   text-shadow: none;
 }
-.sv img {
+.sv.noanim {
+  transition: none;
+}
+.fig {
+  --tint: brightness(1);
+  position: relative;
+  display: inline-block;
+  height: 100%;
+  transform-origin: 50% 100%;
+  filter: var(--tint) drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
+}
+.fig img:not(.pl) {
   display: block;
   height: 100%;
   image-rendering: pixelated;
-  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
 }
-.sv[data-d='-1'] img {
+.fig.layered {
+  aspect-ratio: 1 / 2;
+}
+.fig .pl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+/* 회색조 파츠에 피부색·머리색을 곱해서 입힌다 */
+.fig .tint {
+  background-color: var(--c);
+  background-image: var(--img);
+  background-size: 100% 100%;
+  background-blend-mode: multiply;
+  -webkit-mask: var(--img) center / 100% 100% no-repeat;
+  mask: var(--img) center / 100% 100% no-repeat;
+}
+.sv[data-d='-1'] .fig {
   transform: scaleX(-1);
 }
 .sv .nm {
@@ -624,11 +673,81 @@ input[type='text']:focus {
   color: #ff6a4a;
   animation: blink 0.9s steps(2) infinite;
 }
-.sv.sick img {
+.sv.sick .fig {
   filter: sepia(0.7) hue-rotate(60deg) saturate(1.4) drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
 }
-.sv.crit img {
+.sv.crit .fig {
   filter: sepia(1) hue-rotate(-30deg) saturate(3) drop-shadow(0 0 4px #f33);
+}
+
+/* 동작: 걷기 / 사다리 / 일하기 / 잠 / 쓰러짐 */
+.sv.walk .fig {
+  animation: step 0.42s steps(2) infinite;
+}
+.sv.climb .fig {
+  animation: climb 0.5s steps(2) infinite;
+}
+.sv.work .fig {
+  animation: work 0.9s ease-in-out infinite;
+}
+.sv.sleep .fig {
+  transform: rotate(-86deg) translateX(6%);
+  transform-origin: 50% 100%;
+  animation: breathe 3s ease-in-out infinite;
+}
+.sv.sleep[data-d='-1'] .fig {
+  transform: rotate(86deg) translateX(-6%);
+}
+.sv.down .fig {
+  transform: rotate(-80deg);
+  transform-origin: 50% 100%;
+}
+.sv .fx {
+  position: absolute;
+  left: 50%;
+  top: -24px;
+  font-size: 11px;
+  color: #ffd27a;
+  opacity: 0;
+  pointer-events: none;
+}
+.sv.work .fx,
+.sv.sleep .fx {
+  animation: fx 1.8s ease-out infinite;
+}
+.sv.sleep .nm,
+.sv.sleep .bang {
+  display: none;
+}
+@keyframes step {
+  from { transform: translateY(0); }
+  to { transform: translateY(-2px); }
+}
+@keyframes climb {
+  from { transform: translateY(0) scaleX(0.9); }
+  to { transform: translateY(-3px) scaleX(1); }
+}
+@keyframes work {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(4deg) translateY(1px); }
+}
+@keyframes breathe {
+  0%, 100% { filter: brightness(0.9); }
+  50% { filter: brightness(1.05); }
+}
+@keyframes fx {
+  0% { opacity: 0; transform: translate(-50%, 4px); }
+  25% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -10px); }
+}
+/* 가동 중인 방은 은은하게 깜빡인다 */
+.room.live .roomimg {
+  animation: hum 3.6s ease-in-out infinite;
+}
+@keyframes hum {
+  0%, 100% { filter: brightness(1); }
+  45% { filter: brightness(1.12); }
+  55% { filter: brightness(0.96); }
 }
 .ticker {
   margin: 8px 10px 0;
@@ -652,4 +771,19 @@ input[type='text']:focus {
   padding: 10px 12px 12px;
   background: #0c0d08;
   border-top: 2px solid var(--fg);
+}
+
+/* 카드 안의 인사 기록 사진 */
+.card-head .fig,
+.pick .fig,
+.card > .fig {
+  flex: none;
+  padding: 2px;
+  background: #0a0b06;
+  border: 1px solid var(--line);
+  box-sizing: content-box;
+}
+.card-head .fig img:not(.pl),
+.pick .fig img:not(.pl) {
+  filter: grayscale(1) sepia(1) saturate(2.4) hue-rotate(-8deg) brightness(0.95) contrast(1.15);
 }

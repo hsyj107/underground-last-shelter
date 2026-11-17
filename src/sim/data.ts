@@ -207,32 +207,78 @@ export const RECRUIT_NAMED: Record<string, NamedSeed & { rescue: string }> = {
   },
 };
 
-const FAMILY = ['김', '이', '박', '최', '정', '조', '윤', '장', '임', '오', '신', '권'];
-const GIVEN = ['지훈', '서연', '민수', '하늘', '도현', '수아', '준호', '예린', '상우', '미정', '태윤', '은지', '현우', '소라'];
-const TRAITS = ['손이 빠른 편', '겁은 많지만 성실함', '말수가 적음', '눈치가 빠름', '체력이 좋음', '꼼꼼한 성격', '낙천적임', '잠이 많음'];
-const NORMAL_JOBS: Job[] = ['engineer', 'farmer', 'scout', 'guard', 'caretaker', 'mechanic', 'laborer'];
+const FAMILY = ['김', '이', '박', '최', '정', '조', '윤', '장', '임', '오', '신', '권', '한', '송', '배', '홍'];
+const GIVEN = ['지훈', '서연', '민수', '하늘', '도현', '수아', '준호', '예린', '상우', '미정', '태윤', '은지', '현우', '소라', '재민', '다은', '성민', '유진'];
+const NORMAL_JOBS: Job[] = ['engineer', 'farmer', 'scout', 'guard', 'caretaker', 'mechanic', 'laborer', 'medic', 'researcher'];
 const SPRITES = ['c_hijab', 'c_woman2', 'c_man_red', 'c_strong', 'c_big', 'c_beard', 'c_glasses', 'c_bald'];
+
+/**
+ * 직업별로 있을 법한 사람만 나오게 하는 틀.
+ * 나이대와 숙련도 쏠림, 그리고 "성격 + 직업" 식의 한 줄 소개에 쓰는 말들.
+ */
+interface JobProfile {
+  age: [number, number];
+  /** 숙련도 가중치 (1~5 순서). 합이 클수록 그 숙련도가 잘 나온다 */
+  skill: [number, number, number, number, number];
+  traits: string[];
+  /** 직업 앞에 붙는 설명 */
+  noun: string;
+}
+
+const JOB_PROFILE: Record<Job, JobProfile> = {
+  engineer: { age: [26, 55], skill: [3, 5, 4, 1, 0], noun: '엔지니어', traits: ['꼼꼼한', '말수가 적은', '고집이 센', '손재주가 좋은', '계산이 빠른'] },
+  medic: { age: [27, 58], skill: [3, 4, 3, 1, 0], noun: '의료 종사자', traits: ['침착한', '손이 떨리는 편인', '피를 봐도 담담한', '잠을 못 자는', '다정한'] },
+  farmer: { age: [24, 62], skill: [3, 5, 3, 1, 0], noun: '농사꾼', traits: ['느긋한', '날씨를 잘 아는', '아침형인', '땅을 아끼는', '묵묵한'] },
+  scout: { age: [19, 38], skill: [4, 5, 2, 1, 0], noun: '정찰병', traits: ['눈치가 빠른', '겁이 많지만 빠른', '발소리가 없는', '혼자 다니길 좋아하는', '낙천적인'] },
+  guard: { age: [22, 48], skill: [3, 4, 3, 1, 0], noun: '경비병', traits: ['과묵한', '규율을 중시하는', '체력이 좋은', '의심이 많은', '충직한'] },
+  caretaker: { age: [30, 64], skill: [4, 5, 2, 1, 0], noun: '살림꾼', traits: ['잔소리가 많은', '넉살 좋은', '아이를 잘 달래는', '아끼는 데 익숙한', '정이 많은'] },
+  mechanic: { age: [25, 56], skill: [3, 5, 3, 1, 0], noun: '기계공', traits: ['기름때 묻은', '농담이 많은', '못 고치면 잠을 못 자는', '성미 급한', '꾸준한'] },
+  researcher: { age: [28, 62], skill: [4, 4, 3, 1, 0], noun: '연구원', traits: ['호기심 많은', '사람보다 자료를 믿는', '메모가 습관인', '예민한', '말이 많은'] },
+  laborer: { age: [20, 58], skill: [6, 4, 1, 0, 0], noun: '일용직', traits: ['성실한', '몸이 튼튼한', '시키는 건 하는', '요령 있는', '입이 거친'] },
+};
 
 const pick = <T,>(list: T[], rng: () => number): T => list[Math.floor(rng() * list.length)];
 
-/** 일반 생존자를 한 명 만든다. */
+function weighted(weights: number[], rng: () => number): number {
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = rng() * total;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r < 0) return i;
+  }
+  return weights.length - 1;
+}
+
+const lookInt = (rng: () => number): number => Math.floor(rng() * 1000);
+
+/** 일반 생존자를 한 명 만든다. 직업에 맞는 나이·숙련도·소개가 나온다. */
 export function makeNormal(id: string, rng: () => number, job?: Job, day = 1): Survivor {
+  const j = job ?? pick(NORMAL_JOBS, rng);
+  const prof = JOB_PROFILE[j];
+  const age = prof.age[0] + Math.floor(rng() * (prof.age[1] - prof.age[0] + 1));
+  // 나이가 많을수록 숙련도가 약간 오르고, 아주 어리면 내려간다
+  const w = prof.skill.map((v, i) => (age >= 45 ? v * (1 + i * 0.15) : age <= 24 ? v * (1 - i * 0.1) : v));
+  const skill = 1 + weighted(w, rng);
   return {
     id,
     name: pick(FAMILY, rng) + pick(GIVEN, rng),
     sprite: pick(SPRITES, rng),
     named: false,
-    job: job ?? pick(NORMAL_JOBS, rng),
-    trait: pick(TRAITS, rng),
-    skill: 1 + Math.floor(rng() * 3),
+    job: j,
+    trait: `${pick(prof.traits, rng)} ${prof.noun}`,
+    skill,
     hp: 100,
     stress: 10 + Math.floor(rng() * 15),
     loyalty: 55 + Math.floor(rng() * 20),
     status: 'ok',
     post: null,
     exception: null,
-    age: 20 + Math.floor(rng() * 30),
+    age,
     joined: day,
+    look: {
+      body: lookInt(rng), hair: lookInt(rng), outfit: lookInt(rng), acc: lookInt(rng),
+      skin: lookInt(rng), hairColor: lookInt(rng), height: Math.floor(rng() * 100),
+    },
   };
 }
 

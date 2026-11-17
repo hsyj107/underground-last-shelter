@@ -8,6 +8,8 @@ import {
 } from '../sim/engine';
 import { DAY_MS, msToNextDay, tick } from '../sim/clock';
 import { loadGame, saveGame } from '../sim/save';
+import { layoutActors, syncActors, tickActors, SHAFT_X } from './actors';
+import { figureHtml, loadParts } from './figures';
 import { RES_KEYS, type Exception, type FacilityId, type Game, type LogEntry, type Survivor } from '../sim/types';
 
 /**
@@ -58,7 +60,7 @@ function bar(label: string, value: number, danger: 'high' | 'low'): string {
 }
 
 function portrait(s: Survivor, size = 2): string {
-  return `<img class="pix" src="assets/characters/${esc(s.sprite)}.png" alt="" style="height:${36 * size}px">`;
+  return figureHtml(s, `${36 * size}px`);
 }
 
 function statusTag(s: Survivor): string {
@@ -115,19 +117,10 @@ function alertsHtml(g: Game): string {
 
 // ───────── 쉘터 단면 ─────────
 
-/** 생존자가 방 안에서 서 있는 위치(%). 화면 갱신 때 튀지 않도록 기억해 둔다. */
-const walkX = new Map<string, number>();
-const hash = (id: string): number => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
-
-/** 배치된 시설이 있으면 거기, 없으면 숙소에서 쉰다 */
-function homeOf(g: Game, s: Survivor): FacilityId {
-  return s.post && g.facilities[s.post] > 0 ? s.post : 'dormitory';
-}
-
 function surfaceHtml(g: Game): string {
   const away = g.survivors.filter((s) => s.status === 'away');
   const zombies = [12, 34, 58, 81].map((x, i) => `<i class="zb" style="left:${x}%;animation-delay:${-i * 1.7}s"></i>`).join('');
-  const team = away.map((s, i) => `<span class="awaysv" style="left:${30 + i * 9}%"><img src="assets/characters/${esc(s.sprite)}.png" alt=""></span>`).join('');
+  const team = away.map((s, i) => `<span class="awaysv" style="left:${30 + i * 9}%">${figureHtml(s)}</span>`).join('');
   return `<div class="surface"><div class="skyline"></div>${zombies}${team}
     <span class="surf-tag">지상${away.length ? ` · 원정 ${away.length}명` : ''}</span></div>`;
 }
@@ -139,42 +132,33 @@ function roomHtml(g: Game, d: FacilityDef): string {
     return `<div class="room locked" data-act="room" data-arg="${d.id}">B${d.floor} ${d.name} <span class="tag">잠김</span><div class="sub">${esc(need || '복구 가능')}</div></div>`;
   }
   const st = facilityState(g, d.id);
-  const here = atBunker(g).filter((s) => homeOf(g, s) === d.id);
-  const svs = here.map((s, i) => {
-    const x = walkX.get(s.id) ?? (walkX.set(s.id, 14 + ((hash(s.id) + i * 23) % 70)), walkX.get(s.id) as number);
-    const cls = [s.status === 'sick' || s.status === 'injured' ? 'sick' : '', s.status === 'critical' ? 'crit' : '', s.stress >= 85 ? 'mad' : ''].join(' ');
-    return `<div class="sv ${cls}" data-act="crewsheet" data-arg="${s.id}" data-d="1" style="left:${x}%">
-      <span class="nm">${s.named ? '★' : ''}${esc(s.name)}</span>${s.status === 'critical' || s.stress >= 85 ? '<span class="bang">!</span>' : ''}
-      <img src="assets/characters/${esc(s.sprite)}.png" alt=""></div>`;
-  }).join('');
-  return `<div class="room ${st === 'idle' ? 'idle' : ''}" data-act="room" data-arg="${d.id}">
+  return `<div class="room ${st === 'idle' ? 'idle' : st === 'active' ? 'live' : ''}" data-act="room" data-arg="${d.id}">
     <img class="roomimg" src="assets/rooms/room-${d.id}.png" alt="">
-    <div class="plate">B${d.floor} ${d.name} Lv.${level} ${st === 'active' ? '' : '· 운영 중지'}</div>${svs}</div>`;
+    <div class="plate">B${d.floor} ${d.name} Lv.${level} ${st === 'active' ? '' : '· 운영 중지'}</div></div>`;
+}
+
+/** 방 위를 덮는 층에서 돌아다니는 생존자들. 위치는 actors.ts 가 정한다 */
+function peopleHtml(g: Game): string {
+  const svs = atBunker(g).map((s) => {
+    const cls = [s.status === 'sick' || s.status === 'injured' ? 'sick' : '', s.status === 'critical' ? 'crit' : '', s.stress >= 85 ? 'mad' : ''].join(' ');
+    return `<div class="sv ${cls}" data-act="crewsheet" data-arg="${s.id}" data-d="1">
+      <span class="nm">${s.named ? '★' : ''}${esc(s.name)}</span>${s.status === 'critical' || s.stress >= 85 ? '<span class="bang">!</span>' : ''}
+      <span class="fx"></span>${figureHtml(s)}</div>`;
+  }).join('');
+  return `<div class="sv-layer"><i class="shaft" style="left:${SHAFT_X}%"></i>${svs}</div>`;
+}
+
+/** 하루 중 뒤쪽 1/4은 밤 (숙소에서 쉬는 사람들은 잔다) */
+function isNight(g: Game): boolean {
+  return 1 - msToNextDay(g, Date.now()) / g.clock.dayMs > 0.75;
 }
 
 function viewShelter(g: Game): string {
+  syncActors(g);
   const last = [...g.log].slice(-2).reverse().map(logLine).join('');
-  return `${alertsHtml(g)}${surfaceHtml(g)}${FACILITY_DEFS.map((d) => roomHtml(g, d)).join('')}
+  return `${alertsHtml(g)}${surfaceHtml(g)}<div class="stack">${FACILITY_DEFS.map((d) => roomHtml(g, d)).join('')}${peopleHtml(g)}</div>
     <div class="log ticker">${last}</div>`;
 }
-
-/** 방 안 생존자가 천천히 걸어 다닌다 (화면을 다시 그리지 않고 위치만 바꾼다) */
-function wander(): void {
-  if (!game) return;
-  const g = game;
-  root.querySelectorAll<HTMLElement>('.sv').forEach((el) => {
-    const id = el.dataset.arg ?? '';
-    const s = byId(g, id);
-    if (!s || s.status === 'critical' || Math.random() < 0.35) return;
-    const cur = walkX.get(id) ?? 50;
-    const working = s.post !== null && g.facilities[s.post] > 0;
-    const next = clamp((working ? cur + (Math.random() - 0.5) * 22 : 8 + Math.random() * 80), 8, 88);
-    el.dataset.d = next >= cur ? '1' : '-1';
-    el.style.left = `${next}%`;
-    walkX.set(id, next);
-  });
-}
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 function logLine(e: LogEntry): string {
   const cls = e.kind === 'bad' || e.kind === 'death' ? 'bad' : e.kind === 'good' ? 'good' : e.kind === 'warn' ? 'warn' : '';
@@ -357,6 +341,7 @@ function render(): void {
     ${ui.toast ? `<div class="toast">${esc(ui.toast)}</div>` : ''}</div>`;
   const view = root.querySelector('.view');
   if (view) view.scrollTop = keep;
+  if (ui.tab === 'shelter') layoutActors(root, g, isNight(g));
 }
 
 function sheetHtml(g: Game): string {
@@ -556,7 +541,13 @@ export function startApp(el: HTMLElement): void {
     const c = root.querySelector('#clock');
     if (c) c.textContent = clockText(game);
   }, 1000);
-  window.setInterval(wander, 2800);
+  window.setInterval(() => {
+    if (game && ui.tab === 'shelter' && !document.hidden) tickActors(root, game, isNight(game));
+  }, 2800);
+  window.addEventListener('resize', () => {
+    if (game && ui.tab === 'shelter') layoutActors(root, game, isNight(game));
+  });
+  void loadParts().then(() => render());
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) advance();
   });

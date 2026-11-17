@@ -15,6 +15,22 @@ export type Exception = 'special' | 'withhold' | null;
 
 export type SurvStatus = 'ok' | 'sick' | 'injured' | 'critical' | 'away' | 'dead';
 
+/**
+ * 얼굴·몸 파츠 조합용 난수 값. 숫자는 그냥 큰 정수이고, 화면에서 가진 파츠 개수로 나눈 나머지를 쓴다.
+ * 그림이 늘어도 기존 생존자의 모습이 크게 바뀌지 않고, 시뮬은 그림 파일을 몰라도 된다.
+ */
+export interface Look {
+  body: number;
+  hair: number;
+  outfit: number;
+  acc: number;
+  /** 피부 / 머리색 팔레트 번호 */
+  skin: number;
+  hairColor: number;
+  /** 키 보정 (0~99 → 화면에서 0.94~1.06배) */
+  height: number;
+}
+
 export interface Survivor {
   id: string;
   name: string;
@@ -38,6 +54,8 @@ export interface Survivor {
   age: number;
   /** 정착지에 합류한 날 */
   joined: number;
+  /** 일반 생존자의 외형 값 (네임드는 고정 그림을 쓰므로 없다) */
+  look?: Look;
   /** 네임드: 사연과 유언 */
   story?: string;
   last?: string;
