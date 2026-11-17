@@ -7,11 +7,14 @@ import {
   GIVEN_M,
   NO_SKIRT,
   CAP_CHANCE,
+  ME_LAST,
+  TRAIT_BY_ID,
   TIER,
   tierOf,
   PROF_FEMALE,
   ITEMS,
   JOB_BY_ID,
+  jobTitle,
   ITEM_BY_ID,
   KID_NAMES,
   OLD_GIVEN_F,
@@ -64,6 +67,8 @@ export interface Grave {
 
 export interface Expedition {
   id: string;
+  /** 구조 임무라면 구해 올 사람의 직업 */
+  rescue?: string;
   zone: string;
   members: string[];
   start: number;
@@ -79,8 +84,84 @@ export const RATIONS: Record<Ration, { name: string; icon: string; eat: number; 
   starve: { name: '극한 절식', icon: '🫗', eat: 0.3, death: 1.6, talk: 0, text: '소비 -70%. 탐사 사망 확률 +60%, 대화로 호감을 얻을 수 없다.' },
 };
 
+export type Role = 'scout' | 'work' | 'guard';
+export const ROLES: Record<Role, { name: string; icon: string; text: string }> = {
+  scout: { name: '탐사조', icon: '🎒', text: '탐사에 나갈 수 있어요. 벙커에 있을 땐 개별 능력이 적용돼요.' },
+  work: { name: '생산조', icon: '🌱', text: '벙커에 남아 식량·식수 생산을 돕고 병이 번지는 걸 막아요. 탐사에는 못 나가요.' },
+  guard: { name: '방어조', icon: '🛡', text: '문을 지켜요. 약탈·좀비 습격과 층 돌파의 방어력이 돼요. 탐사에는 못 나가요.' },
+};
+
+/** 약탈자나 좀비 떼가 쳐들어왔다. 정해야 할 일 */
+export interface Raid {
+  kind: 'raider' | 'horde';
+  power: number;
+  /** 약탈자가 요구하는 물자 / 좀비 떼가 휩쓸면 잃는 물자 */
+  demand: Record<ResKey, number>;
+  deadline: number;
+}
+export interface Merchant {
+  until: number;
+  offers: { id: string; res: ResKey; amount: number; price: number; sold: boolean }[];
+}
+export interface Rescue {
+  zone: string;
+  prof: string;
+  deadline: number;
+}
+export interface GameOver {
+  at: number;
+  day: number;
+  cause: string;
+  last: string;
+  recorded: boolean;
+}
+export interface Log {
+  exiled: number;
+  rejected: number;
+  fought: number;
+  paid: number;
+  healed: number;
+  sickDeaths: number;
+  rescued: number;
+  breaches: number;
+  maxCrew: number;
+}
+export interface HallEntry {
+  name: string;
+  origin: string;
+  job: string;
+  trait: string;
+  nick: string;
+  days: number;
+  maxCrew: number;
+  dead: number;
+  floor: number;
+  cause: string;
+  at: number;
+}
+
 export interface State {
   v: 2;
+  /** 생존자별 역할. 없으면 탐사조 */
+  role: Record<string, Role>;
+  /** 병든 사람과 치료 제한 시각 */
+  sick: Record<string, { deadline: number; spread?: boolean }>;
+  over: GameOver | null;
+  log: Log;
+  /** 외부 세력과의 관계 (-5~5) */
+  rep: { raider: number; market: number };
+  raid: Raid | null;
+  nextRaid: number;
+  merchant: Merchant | null;
+  nextMerchant: number;
+  nextSick: number;
+  rescue: Rescue | null;
+  nextRescue: number;
+  /** 구출해 온 사람들 중 아직 문 앞에 세우지 못한 사람 */
+  rescued: string[];
+  /** 구역별로 최근 얼마나 털었는지 */
+  zoneHeat: Record<string, { n: number; at: number }>;
+  rejectStreak: number;
   player: PlayerInfo;
   /** 두 사람 사이의 관계. 키는 정렬한 id 두 개를 | 로 이은 것. 없으면 그냥 아는 사이 */
   rel: Record<string, 'friend' | 'rival'>;
@@ -124,9 +205,11 @@ export type GameEvent =
   | { type: 'crisis' }
   | { type: 'exp_done'; id: string; zone: string };
 
-const ms = (n: number): number => Math.round(n / config.speed);
+export const ms = (n: number): number => Math.round(n / config.speed);
+export const rand = (): number => rng();
 
 export interface Creation {
+  trait: string;
   gender: Gender;
   origin: string;
   job: string;
@@ -153,7 +236,7 @@ export function validCombo(originId: string, jobId: string): boolean {
 
 export function defaultCreation(): Creation {
   const look: Look = { ...PLAYER.look, acc: ORIGIN_BY_ID.tenant.acc.slice() };
-  return { gender: 'm', origin: 'tenant', job: 'clerk', look, stats: rollStats('tenant', 'clerk') };
+  return { trait: 'calm', gender: 'm', origin: 'tenant', job: 'clerk', look, stats: rollStats('tenant', 'clerk') };
 }
 
 export function newState(name: string, now: number, cr: Creation = defaultCreation()): State {
@@ -161,10 +244,25 @@ export function newState(name: string, now: number, cr: Creation = defaultCreati
   const o = ORIGIN_BY_ID[cr.origin];
   const j = JOB_BY_ID[cr.job];
   const gain = (k: 'food' | 'water' | 'med' | 'caps'): number => (o.start[k] ?? 0) + (j.start[k] ?? 0);
-  const player: PlayerInfo = { name: name.trim() || '관리자', gender: cr.gender, origin: cr.origin, job: cr.job, look: cr.look, stats: cr.stats };
+  const player: PlayerInfo = { trait: cr.trait, name: name.trim() || '관리자', gender: cr.gender, origin: cr.origin, job: cr.job, look: cr.look, stats: cr.stats };
   registerPlayer(player);
   const st: State = {
     v: 2,
+    role: {},
+    sick: {},
+    over: null,
+    log: { exiled: 0, rejected: 0, fought: 0, paid: 0, healed: 0, sickDeaths: 0, rescued: 0, breaches: 0, maxCrew: 0 },
+    rep: { raider: 0, market: 0 },
+    raid: null,
+    nextRaid: now + ms(6 * 3600000),
+    merchant: null,
+    nextMerchant: now + ms(3 * 3600000),
+    nextSick: now + ms(8 * 3600000),
+    rescue: null,
+    nextRescue: now + ms(10 * 3600000),
+    rescued: [],
+    zoneHeat: {},
+    rejectStreak: 0,
     rel: {},
     people: {},
     dead: [],
@@ -243,10 +341,50 @@ export function homeCrew(s: State, now: number): string[] {
 export function isTired(s: State, id: string, now: number): boolean {
   return (s.tired[id] ?? 0) > now;
 }
-/** 탐사 보낼 수 있는 사람 */
+export function roleOf(s: State, id: string): Role {
+  return id === 'me' ? 'scout' : s.role[id] ?? 'scout';
+}
+export function isSick(s: State, id: string): boolean {
+  return !!s.sick[id];
+}
+/** 탐사 보낼 수 있는 사람: 탐사조이면서 탐사 중·부상·병중이 아닌 사람 */
 export function availableCrew(s: State, now: number): string[] {
   const away = awaySet(s, now);
-  return ['me', ...s.crew].filter((id) => !away.has(id) && !isTired(s, id, now));
+  return ['me', ...s.crew].filter((id) => !away.has(id) && !isTired(s, id, now) && !isSick(s, id) && roleOf(s, id) === 'scout');
+}
+export function setRole(s: State, id: string, role: Role, now: number): boolean {
+  if (id === 'me' || !s.crew.includes(id) || !ROLES[role]) return false;
+  if (awaySet(s, now).has(id)) return false; // 탐사 중에는 못 바꾼다
+  if (role === 'scout') delete s.role[id];
+  else s.role[id] = role;
+  return true;
+}
+export const hasTrait = (s: State, id: string): boolean => s.player?.trait === id;
+
+/** 생산조가 늘려 주는 생산 배율 (+) */
+export function workBoost(s: State): number {
+  let v = 0;
+  for (const id of s.crew) {
+    if (roleOf(s, id) !== 'work' || isSick(s, id)) continue;
+    const d = SURV_BY_ID[id];
+    if (d) v += 0.1 + 0.01 * (d.stats.str + d.stats.agi);
+  }
+  return v;
+}
+/** 문을 지키는 힘. 방어조가 중심이고, 관리자도 벙커에 있으면 힘을 보탠다. */
+export function defense(s: State, now: number): number {
+  let v = 0;
+  const guards: string[] = [];
+  for (const id of s.crew) {
+    if (roleOf(s, id) !== 'guard' || isSick(s, id) || isTired(s, id, now) || awaySet(s, now).has(id)) continue;
+    const d = SURV_BY_ID[id];
+    if (!d) continue;
+    guards.push(id);
+    v += (d.stats.str * 2 + d.stats.agi) * (d.know.includes('security') ? 1.3 : 1);
+  }
+  for (let i = 0; i < guards.length; i++) for (let j = i + 1; j < guards.length; j++) if (relOf(s, guards[i], guards[j]) === 'friend') v += 2;
+  if (!awaySet(s, now).has('me')) v += SURV_BY_ID.me.stats.str;
+  return Math.round(v * (hasTrait(s, 'veteran') ? 1.2 : 1) * 10) / 10;
 }
 
 // ---------- 비축 · 소비 ----------
@@ -284,10 +422,11 @@ export function flow(s: State, now: number): Flow {
   const all = homeBuff(s, now, ['prod_all']);
   const food = (PROD.food + PROD.foodLv * s.upg.farm) * (1 + homeBuff(s, now, ['prod_food']) + all) * (catComplete(s, 'food') ? 1.25 : 1);
   const water = (PROD.water + PROD.waterLv * s.upg.water) * (1 + homeBuff(s, now, ['prod_water']) + all) * (catComplete(s, 'daily') ? 1.25 : 1);
-  const eat = RATIONS[s.ration].eat;
+  const eat = RATIONS[s.ration].eat * (hasTrait(s, 'steward') ? 0.9 : 1);
   const n = heads(s);
+  const wb = 1 + workBoost(s);
   return {
-    prod: { food, water },
+    prod: { food: food * wb, water: water * wb },
     cons: { food: EAT.food * n * eat, water: EAT.water * n * eat },
     cap: PROD.cap + PROD.capLv * s.upg.store,
   };
@@ -329,6 +468,10 @@ function advanceRes(s: State, k: 'food' | 'water', f: Flow, min: number): number
 
 export function tick(s: State, now: number): GameEvent[] {
   const events: GameEvent[] = [];
+  if (s.over) {
+    s.last = now;
+    return events;
+  }
   if (now < s.last) s.last = now;
   const dt = now - s.last;
   if (dt > 0) {
@@ -457,7 +600,7 @@ function rollRelations(s: State, id: string): void {
   for (const other of s.crew) {
     if (other === id) continue;
     const r = rng();
-    const pFriend = 0.2 + 0.03 * cha;
+    const pFriend = 0.2 + 0.03 * cha + (hasTrait(s, 'charm') ? 0.1 : 0);
     if (r < pFriend) s.rel[relKey(id, other)] = 'friend';
     else if (r < pFriend + 0.15) s.rel[relKey(id, other)] = 'rival';
   }
@@ -537,6 +680,8 @@ export function recruit(s: State, id: string, now: number): boolean {
   s.crew.push(id);
   s.aff[id] = 0;
   s.visitor = null;
+  s.rejectStreak = 0;
+  s.log.maxCrew = Math.max(s.log.maxCrew, s.crew.length);
   s.nextVisit = now + Math.round(ms(45000) / (1 + 0.15 * s.upg.radio));
   return true;
 }
@@ -547,7 +692,80 @@ export function rejectVisitor(s: State, now: number): boolean {
   if (!id) return false;
   delete s.people[id];
   s.visitor = null;
-  s.nextVisit = now + Math.round(ms(30000) / (1 + 0.15 * s.upg.radio));
+  s.rejectStreak += 1;
+  s.log.rejected += 1;
+  // 거절이 이어질수록 다음 사람이 더 늦게 온다 (문을 닫아 두면 소문이 난다)
+  const wait = 30000 * Math.min(4, 1 + 0.5 * s.rejectStreak);
+  s.nextVisit = now + Math.round(ms(wait) / (1 + 0.15 * s.upg.radio));
+  return true;
+}
+
+// ---------- 게임 오버 · 기록 · 별명 ----------
+
+export function endGame(s: State, cause: string, last: string, now: number): void {
+  if (s.over) return;
+  s.over = { at: now, day: dayNumber(s, now), cause, last, recorded: false };
+  s.crisis = false;
+  s.raid = null;
+  s.merchant = null;
+}
+
+/** 지금까지의 행적에서 붙은 별명 (없으면 빈 문자열) */
+export function nickname(s: State): string {
+  const l = s.log;
+  const cands: [number, string][] = [
+    [l.exiled * 3, '냉혈'],
+    [l.healed, '치유자'],
+    [l.rejected >= 3 ? l.rejected : 0, '문지기'],
+    [l.fought * 1.5, '수호자'],
+    [l.paid, '협상가'],
+    [l.rescued * 3, '구조대장'],
+    [l.breaches * 3, '개척자'],
+    [s.dead.length >= 4 ? s.dead.length : 0, '장례를 치르는 사람'],
+    [l.maxCrew >= 10 ? l.maxCrew : 0, '큰 집의 주인'],
+  ];
+  let best = '';
+  let bv = 2.5;
+  for (const [v, n] of cands) if (v > bv) { bv = v; best = n; }
+  return best;
+}
+
+export function hallEntry(s: State): HallEntry {
+  const o = ORIGIN_BY_ID[s.player.origin];
+  return {
+    name: s.name,
+    origin: o?.name ?? '',
+    job: jobTitle(s.player.origin, s.player.job),
+    trait: TRAIT_BY_ID[s.player.trait]?.name ?? '',
+    nick: nickname(s),
+    days: s.over?.day ?? 0,
+    maxCrew: s.log.maxCrew,
+    dead: s.dead.length,
+    floor: s.floor + 1,
+    cause: s.over?.cause ?? '',
+    at: s.over?.at ?? 0,
+  };
+}
+
+const HALL_KEY = 'last-shelter-b7-hall';
+export function loadHall(): HallEntry[] {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(HALL_KEY);
+    return raw ? (JSON.parse(raw) as HallEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+/** 게임이 끝났으면 기록을 한 번만 명예의 전당에 올린다 */
+export function recordHall(s: State): boolean {
+  if (!s.over || s.over.recorded) return false;
+  s.over.recorded = true;
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(HALL_KEY, JSON.stringify([hallEntry(s), ...loadHall()].slice(0, 30)));
+  } catch {
+    /* 저장할 수 없어도 게임은 계속된다 */
+  }
   return true;
 }
 
@@ -557,8 +775,21 @@ export function expeditionMs(s: State, zone: ZoneDef): number {
   return Math.max(3000, Math.round((zone.minutes * 60000 * (1 - 0.07 * s.upg.radio) * (catComplete(s, 'tech') ? 0.9 : 1)) / config.speed));
 }
 
+/** 최근 이 구역을 얼마나 털었는지 (시간이 지나면 회복) */
+export function zoneHeatN(s: State, zoneId: string, now: number): number {
+  const h = s.zoneHeat[zoneId];
+  if (!h) return 0;
+  return Math.max(0, h.n - (now - h.at) / ms(20 * 60000));
+}
+/** 많이 털린 구역에서는 얻는 물자가 줄어든다 */
+export function supplyMult(s: State, zoneId: string, now: number): number {
+  return Math.max(0.3, 0.8 ** zoneHeatN(s, zoneId, now));
+}
+
 export interface Preview {
   ms: number;
+  /** 구역이 얼마나 털렸는지에 따른 물자 배율 */
+  supplyMult: number;
   risk: number;
   loot: number;
   power: number;
@@ -576,11 +807,13 @@ export interface Preview {
 /** 들켰을 때 죽을 확률. 전투가 세면 낮고, 팀에 의료 능력치가 높은 사람이 있으면 더 낮다. */
 export function deathChance(id: string, members: string[], s?: State, now = 0): number {
   const d = SURV_BY_ID[id];
-  if (!d || id === 'me') return 0;
+  if (!d) return 0;
   const medic = Math.max(0, ...members.map((m) => SURV_BY_ID[m]?.stats.med ?? 0));
   let p = Math.max(0.03, (0.5 - 0.04 * d.stats.str) * (1 - Math.min(0.4, 0.04 * medic)));
   // 친한 사람이 같이 가면 서로 챙긴다
   if (s && members.some((m) => m !== id && relOf(s, id, m) === 'friend')) p *= 0.85;
+  if (id === 'me') p *= 0.5; // 관리자는 보호받지만 죽을 수 있다
+  if (s && hasTrait(s, 'calm')) p *= 0.9;
   if (s) {
     p *= rationDeathMult(s, now);
     if (catComplete(s, 'medical')) p *= 0.9;
@@ -623,11 +856,11 @@ export function previewExpedition(s: State, zoneId: string, members: string[], n
     deathIf[id] = deathChance(id, members, s, now);
     safe *= 1 - risk * deathIf[id];
   }
-  return { ms: expeditionMs(s, zone), risk, loot, power, deathIf, anyDeath: 1 - safe, friends, rivals, experts };
+  return { ms: expeditionMs(s, zone), supplyMult: supplyMult(s, zoneId, now), risk, loot, power, deathIf, anyDeath: 1 - safe, friends, rivals, experts };
 }
 
 function luckOf(s: State, members: string[]): number {
-  let luck = 1;
+  let luck = hasTrait(s, 'lucky') ? 1.2 : 1;
   for (const id of members) {
     const d = SURV_BY_ID[id];
     if (d) luck += 0.03 * d.stats.agi; // 수색 능력치: 희귀·전설 발견 확률
@@ -679,14 +912,14 @@ export function startExpedition(s: State, zoneId: string, members: string[], now
   const supplies = { food: 0, water: 0, med: 0 } as Record<ResKey, number>;
   for (const k of Object.keys(zone.supply) as ResKey[]) {
     const [lo, hi] = zone.supply[k] as [number, number];
-    supplies[k] = Math.round((lo + rng() * (hi - lo)) * (caught ? 0.5 : 1) * (1 + 0.15 * pv.experts.length));
+    supplies[k] = Math.round((lo + rng() * (hi - lo)) * (caught ? 0.5 : 1) * (1 + 0.15 * pv.experts.length) * pv.supplyMult);
   }
   const deaths: ExpResult['deaths'] = [];
   if (caught) {
     for (const m of members) {
       if (rng() < pv.deathIf[m]) {
-        const pr = PROF_BY_ID[s.people[m].prof];
-        deaths.push({ id: m, last: pr.lastWords[Math.floor(rng() * pr.lastWords.length)] });
+        const lw = m === 'me' ? ME_LAST : PROF_BY_ID[s.people[m].prof].lastWords;
+        deaths.push({ id: m, last: lw[Math.floor(rng() * lw.length)] });
       }
     }
   }
@@ -695,6 +928,7 @@ export function startExpedition(s: State, zoneId: string, members: string[], now
       ? '좀비 떼에 포위당했다. 전부 돌아오지는 못했다…'
       : '좀비 떼에 들켜서 도망쳐 왔다! 가방이 반쯤 비었다…'
     : zone.lines[Math.floor(rng() * zone.lines.length)];
+  s.zoneHeat[zoneId] = { n: zoneHeatN(s, zoneId, now) + 1, at: now };
   const exp: Expedition = {
     id: `e${s.nextExpId++}`,
     zone: zoneId,
@@ -709,6 +943,8 @@ export function startExpedition(s: State, zoneId: string, members: string[], now
 }
 
 export interface Report {
+  /** 구조 임무로 데려온 사람 (자리가 없으면 문 앞에 선다) */
+  rescued?: { id: string; name: string; title: string; atDoor: boolean };
   zone: string;
   items: { id: string; isNew: boolean }[];
   caps: number;
@@ -801,6 +1037,12 @@ export function claimExpedition(s: State, expId: string, now: number): Report | 
   const deaths: Report['deaths'] = [];
   for (const dd of e.result.deaths ?? []) {
     const d = SURV_BY_ID[dd.id];
+    if (dd.id === 'me' && d) {
+      deaths.push({ id: 'me', name: d.name, title: d.title, last: dd.last });
+      s.dead.push({ id: 'me', day: dayNumber(s, now), zone: e.zone, last: dd.last });
+      endGame(s, `${zone.name} 탐사 중 쓰러졌다`, dd.last, now);
+      continue;
+    }
     if (!d || !s.crew.includes(dd.id)) continue;
     s.crew = s.crew.filter((c) => c !== dd.id);
     s.dead.push({ id: dd.id, day: dayNumber(s, now), zone: e.zone, last: dd.last });
@@ -825,7 +1067,27 @@ export function claimExpedition(s: State, expId: string, now: number): Report | 
     r.chapters.forEach((c) => chapters.push({ id: m, chapter: c }));
     rewards += r.reward;
   }
-  return { zone: e.zone, items, caps: e.result.caps, bonusCaps, caught: e.result.caught, line: e.result.line, firstClear, chapters, rewards, supplies: sup, deaths, grief: [...grief], bonds };
+  let rescued: Report['rescued'];
+  if (e.rescue) {
+    s.rescue = null;
+    const pd = PROF_BY_ID[e.rescue];
+    if (!e.result.caught && pd && !livingProfs(s).has(pd.id)) {
+      const p = makePerson(s, pd);
+      if (freeBeds(s) > 0) {
+        rollRelations(s, p.id);
+        s.crew.push(p.id);
+        s.aff[p.id] = 0;
+        s.log.maxCrew = Math.max(s.log.maxCrew, s.crew.length);
+        rescued = { id: p.id, name: p.name, title: pd.title, atDoor: false };
+      } else {
+        if (s.visitor && !s.crew.includes(s.visitor)) delete s.people[s.visitor];
+        s.visitor = p.id;
+        rescued = { id: p.id, name: p.name, title: pd.title, atDoor: true };
+      }
+      s.log.rescued += 1;
+    }
+  }
+  return { rescued, zone: e.zone, items, caps: e.result.caps, bonusCaps, caught: e.result.caught, line: e.result.line, firstClear, chapters, rewards, supplies: sup, deaths, grief: [...grief], bonds };
 }
 
 export function setRation(s: State, r: Ration): void {
@@ -866,6 +1128,9 @@ export function resolveCrisis(s: State, choice: 'exile' | 'endure', now: number)
   const grief: string[] = [];
   const last = '"…알겠어요. 먹을 걸 남겨 줘서 고마웠어요."';
   s.crew = s.crew.filter((c) => c !== id);
+  delete s.role[id];
+  delete s.sick[id];
+  s.log.exiled += 1;
   s.dead.push({ id, day: dayNumber(s, now), zone: 'exile', last });
   for (const f of relatives(s, id, 'friend')) {
     if (!s.crew.includes(f)) continue;
@@ -1013,7 +1278,7 @@ export function loadState(): State | null {
     const d = JSON.parse(raw) as Partial<State>;
     if (d.v !== 2 || typeof d.created !== 'number') return null;
     const base = newState(d.name ?? '관리자', d.created);
-    const st = { ...base, ...d, upg: { ...base.upg, ...(d.upg ?? {}) }, stats: { ...base.stats, ...(d.stats ?? {}) } } as State;
+    const st = { ...base, ...d, upg: { ...base.upg, ...(d.upg ?? {}) }, stats: { ...base.stats, ...(d.stats ?? {}) }, log: { ...base.log, ...(d.log ?? {}) }, rep: { ...base.rep, ...(d.rep ?? {}) } } as State;
     resetRegistry();
     registerPlayer(st.player);
     for (const p of Object.values(st.people)) registerPerson(p);

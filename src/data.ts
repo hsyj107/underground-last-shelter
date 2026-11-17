@@ -440,6 +440,8 @@ export const NAME_POOL: Record<Gender, string[]> = {
 
 /** 시작 화면에서 정해진 플레이어 정보 */
 export interface PlayerInfo {
+  /** 지휘 특성 id (TRAITS) */
+  trait: string;
   name: string;
   gender: Gender;
   origin: string;
@@ -691,6 +693,33 @@ export function resetRegistry(): void {
   for (const k of Object.keys(SURV_BY_ID)) if (k !== 'me') delete SURV_BY_ID[k];
 }
 
+
+// ---------- 지휘 특성 · 별명 ----------
+
+export interface Trait {
+  id: string;
+  name: string;
+  icon: string;
+  text: string;
+}
+/** 관리자가 시작할 때 고르는 특성. 효과는 state.ts 가 id 로 읽는다 */
+export const TRAITS: Trait[] = [
+  { id: 'calm', name: '침착함', icon: '🧊', text: '탐사에서 누가 죽을 확률 -10%' },
+  { id: 'charm', name: '카리스마', icon: '🎤', text: '협상 성공 +20%, 새로 합류한 사람과 친구가 될 확률 +10%' },
+  { id: 'steward', name: '알뜰함', icon: '🧮', text: '식량·식수 소비 -10%' },
+  { id: 'veteran', name: '노련함', icon: '🛡', text: '방어력 +20%, 돌파·습격 판정 +' },
+  { id: 'lucky', name: '운이 좋음', icon: '🍀', text: '희귀 발견 +20%, 전염병이 돌 확률 -25%' },
+  { id: 'healer', name: '돌봄', icon: '💊', text: '치료 비용 의약품 -1, 병든 사람이 오래 버팀' },
+];
+export const TRAIT_BY_ID: Record<string, Trait> = Object.fromEntries(TRAITS.map((x) => [x.id, x]));
+
+/** 관리자가 탐사나 습격에서 죽을 때 남기는 마지막 말 */
+export const ME_LAST = [
+  '"…이 벙커를, 부탁해요."',
+  '"다들 먹었죠? 그럼 됐어요."',
+  '"문은 열어 두지 말고… 이름은 기억해 줘요."',
+  '"내가 없어도 식량 계산은 이어서 해요. 제일 중요한 일이에요."',
+];
 
 // ---------- 거주 구역 (층 확장) ----------
 

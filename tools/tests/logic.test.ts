@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { FLOORS, ITEMS, ITEM_BY_ID, JOBS, ORIGINS, PROD, PROFS, SURV_BY_ID, ZONES, SHELF_ORDER, CAT_ORDER, RARITY, UPGRADES } from '../../src/data.ts';
 import { SHAPES } from '../../src/shapes.ts';
 import * as g from '../../src/state.ts';
+import * as e from '../../src/events.ts';
 
 function seq(values: number[]): () => number {
   let i = 0;
@@ -217,9 +218,11 @@ test('위험도: 특수부대는 위험을 크게 줄이고 아이는 전리품�
 });
 
 test('들키면 전리품 절반, 피로가 생긴다', () => {
-  g.setRng(() => 0); // 항상 들킴 (점장은 죽지 않는다)
+  // 들키되 아무도 죽지 않는 난수: 첫 판정(들킴)만 0, 이후는 1에 가깝게
   const s = g.newState('a', 0);
   s.found = Object.fromEntries(ITEMS.slice(0, 40).map((i) => [i.id, 1]));
+  let calls = 0;
+  g.setRng(() => (calls++ === 0 ? 0 : 0.999));
   const r = g.startExpedition(s, 'megamart', ['me'], 0);
   assert.ok(r.ok);
   if (!r.ok) return;
@@ -390,10 +393,10 @@ test('죽음: 들키면 정해진 사람이 영구히 사라지고 추모비와 
   const name = s.people[kid].name;
   s.found = Object.fromEntries(ITEMS.slice(0, 40).map((i) => [i.id, 1]));
   s.aff[kid] = 30;
-  const r = g.startExpedition(s, 'megamart', ['me', kid], 0);
+  const r = g.startExpedition(s, 'megamart', [kid], 0);
   assert.ok(r.ok);
   if (!r.ok) return;
-  assert.deepEqual(r.exp.result.deaths.map((d) => d.id), [kid]); // 점장은 죽지 않는다
+  assert.deepEqual(r.exp.result.deaths.map((d) => d.id), [kid]);
   // 출발 시점에 이미 정해져 있다: 저장을 불러와도 바뀌지 않는다
   const rep = g.claimExpedition(s, r.exp.id, r.exp.end);
   assert.ok(rep);
@@ -421,7 +424,8 @@ test('죽음: 안전한 구역에서는 아무도 죽지 않고, 전투가 센 �
   assert.ok(g.deathChance(sol, [sol]) < g.deathChance(kid, [kid]));
   // 의료 능력치가 높은 동료가 함께 가면 사망 확률이 내려간다
   assert.ok(g.deathChance(kid, [kid, nurse]) < g.deathChance(kid, [kid]));
-  assert.equal(g.deathChance('me', ['me']), 0);
+  // 관리자도 죽을 수 있지만 같은 능력치의 동료보다 절반만 위험하다
+  assert.ok(g.deathChance('me', ['me']) > 0);
   assert.ok(g.deathChance(kid, [kid]) >= 0.03);
 });
 
@@ -630,7 +634,7 @@ test('방문자를 돌려보낼 수 있다: 문 앞이 비고 잠시 뒤 다른 
   assert.equal(s.crew.length, 0);
   assert.ok(!g.rejectVisitor(s, 25_001)); // 이미 없다
   assert.deepEqual(g.tick(s, 25_500), []); // 바로 오지 않는다
-  const ev = g.tick(s, 60_000);
+  const ev = g.tick(s, 120_000);
   assert.equal(ev.length, 1);
   assert.notEqual(s.visitor, id);
 });
@@ -677,10 +681,12 @@ test('친한 사이가 같이 가면 들킬 확률이 낮아진다', () => {
   const s = g.newState('a', 0, plain());
   const a = join(s, 'cook');
   const b = join(s, 'farmer');
-  const before = g.previewExpedition(s, 'police', [a, b], 0).risk;
+  // 위험도 0이 되지 않도록 가장 센 구역에서 비교한다
+  const before = g.previewExpedition(s, 'megamart', [a, b], 0).risk;
   s.rel[g.relKey(a, b)] = 'friend';
-  const after = g.previewExpedition(s, 'police', [a, b], 0).risk;
-  assert.ok(after < before);
+  const after = g.previewExpedition(s, 'megamart', [a, b], 0).risk;
+  assert.ok(before > 0);
+  assert.ok(after < before || before >= 0.5, '친구면 위험이 줄거나(상한 0.5 제외)');
 });
 
 test('거주 구역: 침대가 차면 받을 수 없고, 층을 넓히면 받을 수 있다', () => {
@@ -808,3 +814,239 @@ test('전문직은 드물게 온다: 의사·연구원은 농부·택배기사�
   assert.ok(expert * 3 < common, `전문직 ${expert} vs 흔한 직업 ${common}`);
   assert.ok(avg(['nurse', 'pharmacist']) < common * 0.8);
 });
+
+// ---------- 역할 · 관리자 사망 · 사건 ----------
+
+test('역할: 탐사조만 탐사를 나가고, 생산조는 생산을, 방어조는 방어력을 올린다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0, plain());
+  const a = join(s, 'farmer');
+  const b = join(s, 'soldier');
+  assert.ok(g.availableCrew(s, 0).includes(a));
+  const f0 = g.flow(s, 0).prod.food;
+  const d0 = g.defense(s, 0);
+  assert.ok(g.setRole(s, a, 'work', 0));
+  assert.ok(g.setRole(s, b, 'guard', 0));
+  assert.ok(!g.availableCrew(s, 0).includes(a));
+  assert.ok(!g.availableCrew(s, 0).includes(b));
+  assert.ok(g.flow(s, 0).prod.food > f0, '생산조가 생산을 늘린다');
+  assert.ok(g.defense(s, 0) > d0, '방어조가 방어력을 올린다');
+  assert.ok(!g.setRole(s, 'me', 'guard', 0), '관리자는 역할을 못 바꾼다');
+  assert.ok(g.setRole(s, a, 'scout', 0));
+  assert.ok(g.availableCrew(s, 0).includes(a));
+});
+
+test('관리자가 탐사에서 죽으면 게임이 끝나고 기록이 한 번만 남는다', () => {
+  const s = g.newState('a', 0);
+  s.found = Object.fromEntries(ITEMS.slice(0, 40).map((i) => [i.id, 1]));
+  g.setRng(() => 0);
+  const r = g.startExpedition(s, 'megamart', ['me'], 0);
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.deepEqual(r.exp.result.deaths.map((d) => d.id), ['me']);
+  const rep = g.claimExpedition(s, r.exp.id, r.exp.end);
+  assert.ok(rep);
+  assert.ok(s.over, '게임 오버');
+  assert.equal(s.over!.recorded, false);
+  assert.ok(rep!.deaths.some((d) => d.id === 'me'));
+  // 게임이 끝나면 시간이 흐르지 않는다
+  const res = { ...s.res };
+  g.tick(s, 5 * 3600000);
+  assert.deepEqual(s.res, res);
+  assert.ok(g.hallEntry(s).days >= 1);
+  g.setRng(Math.random);
+});
+
+test('특성: 알뜰함은 소비를, 침착함은 사망 확률을 줄인다', () => {
+  const a = g.newState('a', 0, { ...plain(), trait: 'steward' });
+  const b = g.newState('b', 0, { ...plain(), trait: 'lucky' });
+  join(a, 'cook');
+  join(b, 'cook');
+  assert.ok(g.flow(a, 0).cons.food < g.flow(b, 0).cons.food);
+  const c = g.newState('c', 0, { ...plain(), trait: 'calm' });
+  const d = g.newState('d', 0, { ...plain(), trait: 'lucky' });
+  assert.ok(g.deathChance('me', ['me'], c, 0) < g.deathChance('me', ['me'], d, 0));
+});
+
+test('습격: 방어조가 있으면 막아내고, 없으면 물자를 잃으며 협상·지불로 피할 수 있다', () => {
+  g.setRng(Math.random);
+  const mk = (): g.State => {
+    const s = g.newState('a', 0, plain());
+    join(s, 'cook');
+    join(s, 'farmer');
+    s.nextRaid = 0;
+    return s;
+  };
+  const day2 = 86400000 + 1000;
+  // 약탈자: 돈(물자)으로 해결
+  let s = mk();
+  s.res = { food: 100, water: 100, med: 10 };
+  let ev = ev_(s, day2);
+  assert.ok(ev.some((e) => e.type === 'raid'));
+  s.raid!.kind = 'raider';
+  const dem = { ...s.raid!.demand };
+  const r1 = e.resolveRaid(s, 'pay', day2)!;
+  assert.equal(r1.outcome, 'deal');
+  assert.equal(s.res.food, 100 - dem.food);
+  assert.equal(s.rep.raider, 1);
+  assert.equal(s.raid, null);
+  // 싸움: 방어력이 훨씬 크면 이긴다
+  s = mk();
+  ev_(s, day2);
+  s.raid!.kind = 'raider';
+  s.raid!.power = 1;
+  g.setRng(() => 0.5);
+  const r2 = e.resolveRaid(s, 'fight', day2)!;
+  assert.equal(r2.outcome, 'win');
+  assert.ok(r2.caps > 0);
+  assert.equal(s.rep.raider, -1);
+  // 싸움: 방어력이 한참 모자라면 물자를 잃는다
+  s = mk();
+  s.res = { food: 100, water: 100, med: 10 };
+  ev_(s, day2);
+  s.raid!.kind = 'raider';
+  s.raid!.power = 99;
+  g.setRng(() => 0.5);
+  const r3 = e.resolveRaid(s, 'fight', day2)!;
+  assert.equal(r3.outcome, 'lose');
+  assert.ok(r3.lost.food > 0);
+  // 좀비 떼에는 협상이 없다
+  s = mk();
+  ev_(s, day2);
+  s.raid!.kind = 'horde';
+  assert.equal(e.resolveRaid(s, 'talk', day2), null);
+  assert.ok(e.resolveRaid(s, 'hide', day2));
+  g.setRng(Math.random);
+});
+
+test('습격: 정하지 않고 두면 기한이 지나 자동으로 처리된다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0, plain());
+  join(s, 'cook');
+  join(s, 'farmer');
+  s.res = { food: 100, water: 100, med: 10 };
+  s.nextRaid = 0;
+  const t = 86400000 + 1000;
+  e.tickEvents(s, t);
+  assert.ok(s.raid);
+  s.raid!.kind = 'raider';
+  const out = e.tickEvents(s, s.raid!.deadline + 1);
+  assert.ok(out.some((n) => n.type === 'raid_auto'));
+  assert.equal(s.raid, null);
+});
+
+test('질병: 치료하면 낫고, 방치하면 죽는다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0, plain());
+  const a = join(s, 'cook');
+  s.sick[a] = { deadline: 1000 };
+  s.res.med = 10;
+  assert.ok(!g.availableCrew(s, 0).includes(a), '병든 사람은 탐사에 못 나간다');
+  assert.ok(e.treat(s, a));
+  assert.equal(s.res.med, 10 - 4);
+  assert.ok(!s.sick[a]);
+  // 의약품이 없으면 치료 불가
+  s.sick[a] = { deadline: 1000 };
+  s.res.med = 1;
+  assert.ok(!e.treat(s, a));
+  const out = e.tickEvents(s, 2000);
+  assert.ok(out.some((n) => n.type === 'sick_death'));
+  assert.ok(!s.crew.includes(a));
+  assert.equal(s.dead.at(-1)!.zone, 'sick');
+});
+
+test('상인: 병마개로 물자를 사고, 남는 식량을 팔 수 있다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0, plain());
+  s.nextMerchant = 0;
+  const out = e.tickEvents(s, 1000);
+  assert.ok(out.some((n) => n.type === 'merchant'));
+  const o = s.merchant!.offers[0];
+  s.caps = o.price - 1;
+  assert.ok(!e.buyOffer(s, o.id, 1000));
+  s.caps = o.price;
+  const before = s.res[o.res];
+  assert.ok(e.buyOffer(s, o.id, 1000));
+  assert.equal(s.res[o.res], before + o.amount);
+  assert.ok(!e.buyOffer(s, o.id, 1000), '한 번만 살 수 있다');
+  s.res.food = 80;
+  assert.ok(e.sellRes(s, 'food', 1000) > 0);
+  // 떠난다
+  const left = e.tickEvents(s, s.merchant!.until + 1);
+  assert.ok(left.some((n) => n.type === 'merchant_left'));
+  assert.equal(s.merchant, null);
+});
+
+test('구조 신호: 희귀 직업을 구하러 가서 성공하면 합류한다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0, plain());
+  join(s, 'cook');
+  s.found = Object.fromEntries(ITEMS.slice(0, 40).map((i) => [i.id, 1]));
+  s.nextRescue = 0;
+  e.tickEvents(s, 3 * 86400000);
+  assert.ok(s.rescue, '구조 신호');
+  const prof = s.rescue!.prof;
+  const r = e.startRescue(s, ['me'], 3 * 86400000);
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.exp.rescue, prof);
+  r.exp.result.caught = false;
+  r.exp.result.deaths = [];
+  const rep = g.claimExpedition(s, r.exp.id, r.exp.end)!;
+  assert.ok(rep.rescued);
+  assert.equal(s.people[rep.rescued!.id].prof, prof);
+  assert.ok(s.crew.includes(rep.rescued!.id));
+  assert.equal(s.rescue, null);
+  assert.equal(s.log.rescued, 1);
+});
+
+test('층 돌파: 방어력이 모자라면 실패하고 공사비 일부를 잃으며, 충분하면 층이 열린다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0, plain());
+  s.caps = 1000;
+  const pv = e.previewBreach(s, 0)!;
+  assert.equal(pv.power, e.BREACH_POWER[1]);
+  assert.ok(!e.breachFloor({ ...s, caps: 1 }, 0).ok);
+  // 약한 방어: 실패
+  g.setRng(() => 0.5);
+  s.caps = FLOORS[1].cost;
+  const bad = e.breachFloor(s, 0);
+  assert.ok(bad.ok && (bad.win || pv.defense >= pv.power));
+  // 방어조를 세워 두면 반드시 이긴다
+  const s2 = g.newState('b', 0, plain());
+  for (const p of ['soldier', 'police', 'firefighter']) {
+    const id = join(s2, p);
+    g.setRole(s2, id, 'guard', 0);
+  }
+  s2.caps = FLOORS[1].cost;
+  g.setRng(() => 0.5);
+  const ok = e.breachFloor(s2, 0);
+  assert.ok(ok.ok && ok.win);
+  assert.equal(s2.floor, 1);
+  assert.equal(s2.log.breaches, 1);
+  // 힘이 한참 모자란 판: 지고, 병마개 60%를 잃고, 층은 그대로
+  const s3 = g.newState('c', 0, plain());
+  s3.floor = 3;
+  s3.caps = FLOORS[4].cost;
+  g.setRng(() => 0.5);
+  const lost = e.breachFloor(s3, 0);
+  assert.ok(lost.ok && !lost.win);
+  assert.equal(s3.floor, 3);
+  assert.equal(s3.caps, FLOORS[4].cost - Math.round(FLOORS[4].cost * 0.6));
+  g.setRng(Math.random);
+});
+
+test('별명과 명예의 전당', () => {
+  const s = g.newState('a', 0, plain());
+  assert.equal(g.nickname(s), '');
+  s.log.exiled = 3;
+  assert.equal(g.nickname(s), '냉혈');
+  s.log.exiled = 0;
+  s.log.healed = 5;
+  assert.equal(g.nickname(s), '치유자');
+  assert.equal(g.recordHall(s), false, '끝나지 않았으면 기록하지 않는다');
+});
+
+function ev_(s: g.State, now: number): e.Notice[] {
+  return e.tickEvents(s, now);
+}

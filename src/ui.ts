@@ -25,6 +25,9 @@ import {
   ZONES,
   KNOW_NAME,
   ZONE_BY_ID,
+  PROF_BY_ID,
+  TRAITS,
+  TRAIT_BY_ID,
 } from './data.ts';
 import type { Cat, Gender, Look, ResKey, Stats, UpgKey } from './data.ts';
 import { Scene } from './scene.ts';
@@ -64,8 +67,7 @@ import {
   capacity,
   freeBeds,
   nextFloor,
-  buyFloor,
-  rejectVisitor,
+    rejectVisitor,
   EAT,
   saveState,
   relatives,
@@ -76,8 +78,32 @@ import {
   tapSurvivor,
   tick,
   upgradeCost,
+  roleOf,
+  ROLES,
+  setRole,
+  isSick,
+  defense,
+  nickname,
+  loadHall,
+  recordHall,
+  workBoost,
 } from './state.ts';
-import type { GameEvent, Report, State } from './state.ts';
+import type { GameEvent, Report, Role, State } from './state.ts';
+import {
+  tickEvents,
+  resolveRaid,
+  raidChoices,
+  talkChance,
+  buyOffer,
+  sellRes,
+  treat,
+  treatCost,
+  startRescue,
+  previewBreach,
+  breachFloor,
+  marketMult,
+} from './events.ts';
+import type { Notice, RaidChoice, RaidResult, Gone } from './events.ts';
 import { iconURL, lookPortraitURL, portraitURL, profPortraitURL } from './sprites.ts';
 
 type Tab = 'home' | 'explore' | 'shelf' | 'crew';
@@ -180,7 +206,7 @@ export function startApp(root: HTMLElement): void {
 
   root.addEventListener('click', onClick);
   $('#modal').addEventListener('click', (e) => {
-    if (e.target === e.currentTarget && modalKind !== 'intro') closeModal();
+    if (e.target === e.currentTarget && modalKind !== 'intro' && modalKind !== 'over') closeModal();
   });
   document.querySelectorAll<HTMLElement>('#tabs button').forEach((b) =>
     b.addEventListener('click', () => {
@@ -194,7 +220,8 @@ export function startApp(root: HTMLElement): void {
   else {
     if (offline) openOffline(offline.ms, offline.food, offline.water);
     handleEvents(events);
-    if (S.crisis && modalKind === null) openCrisis();
+    handleNotices(tickEvents(S, now));
+    autoOpen();
   }
 
   setInterval(step, 1000);
@@ -210,7 +237,8 @@ function step(): void {
   if (!S || modalKind === 'intro') return;
   const events = tick(S, Date.now());
   if (events.length) handleEvents(events);
-  if (S.crisis && modalKind === null) openCrisis();
+  handleNotices(tickEvents(S, Date.now()));
+  autoOpen();
   updateHud();
   updateLive();
 }
@@ -288,6 +316,11 @@ function renderStageActions(): void {
   if (S.visitor) parts.push(`<button class="pill warm" data-act="visitor">🚪 방문자가 기다려요</button>`);
   const r = readyExps(now);
   if (r) parts.push(`<button class="pill good" data-act="bag">🎒 배낭 ${r}개 도착</button>`);
+  if (S.raid) parts.push(`<button class="pill bad" data-act="raid">${S.raid.kind === 'raider' ? '⚔ 약탈자가 문 앞에!' : '🧟 좀비 떼가 몰려온다!'}</button>`);
+  if (S.merchant && S.merchant.until > now) parts.push(`<button class="pill warm" data-act="merchant">🛒 상인이 왔어요</button>`);
+  if (S.rescue && !S.exps.some((e) => e.rescue)) parts.push(`<button class="pill warm" data-act="rescue">📡 구조 신호</button>`);
+  const sk = Object.keys(S.sick).length;
+  if (sk) parts.push(`<button class="pill bad" data-act="tab-crew">🤒 앓는 사람 ${sk}명</button>`);
   $('#stage-actions').innerHTML = parts.join('');
 }
 
@@ -297,7 +330,7 @@ function updateDots(): void {
     home: readyExps(now) > 0 || !!S.visitor,
     explore: S.exps.length === 0 && availableCrew(S, now).length > 0 && S.stats.expeditions > 0,
     shelf: false,
-    crew: !!S.visitor,
+    crew: !!S.visitor || Object.keys(S.sick).length > 0,
   };
   document.querySelectorAll<HTMLElement>('#tabs button').forEach((b) => b.classList.toggle('dot', dots[b.dataset.tab as Tab]));
 }
@@ -365,6 +398,7 @@ function homeHtml(): string {
 
   h += supplyHtml(now);
 
+  h += rolesHtml(now);
   h += floorHtml();
   h += `<section class="card"><h3>🛠 개조</h3>`;
   (Object.keys(UPGRADES) as UpgKey[]).forEach((k) => {
@@ -381,6 +415,18 @@ function homeHtml(): string {
   return h;
 }
 
+function rolesHtml(now: number): string {
+  if (!S.crew.length) return '';
+  const cnt = (r: Role): number => S.crew.filter((id) => roleOf(S, id) === r).length;
+  const wb = Math.round(workBoost(S) * 100);
+  const sick = Object.keys(S.sick).length;
+  return `<section class="card"><h3>🛡 벙커 살림</h3>
+    <p class="sm">🎒 탐사조 <b>${cnt('scout') + 1}</b> · 🌱 생산조 <b>${cnt('work')}</b> ${wb ? `<span class="ok">(식량·식수 +${wb}%)</span>` : ''} · 🛡 방어조 <b>${cnt('guard')}</b></p>
+    <p class="sm">문을 지키는 힘 <b>${defense(S, now)}</b> ${cnt('guard') ? '' : '<em class="warn">— 방어조가 없어요. 습격과 층 돌파에는 방어조가 필요해요.</em>'}</p>
+    ${sick ? `<p class="bad sm">🤒 앓는 사람 ${sick}명 — 생존자 탭에서 치료하세요.</p>` : ''}
+    <p class="dim sm">생존자 탭에서 사람을 눌러 맡은 일을 정할 수 있어요.</p></section>`;
+}
+
 function floorHtml(): string {
   const f = FLOORS[Math.min(S.floor, FLOORS.length - 1)];
   const nx = nextFloor(S);
@@ -395,7 +441,7 @@ function floorHtml(): string {
       nx
         ? `<div class="upg"><div class="ui">${nx.icon}</div>
       <div class="ut"><b>아래로 파 내려가기 <small>${nx.name}</small></b><span>수용 ${cap}명 → ${nx.cap}명</span></div>
-      <button class="btn sm ${S.caps >= nx.cost ? 'primary' : ''}" data-act="buy-floor" ${S.caps >= nx.cost ? '' : 'disabled'}>● ${fmt(nx.cost)}</button></div>`
+      <button class="btn sm ${S.caps >= nx.cost ? 'primary' : ''}" data-act="breach-open" ${S.caps >= nx.cost ? '' : 'disabled'}>⛏ ● ${fmt(nx.cost)}</button></div>`
         : '<p class="dim sm">더 이상 파 내려갈 곳이 없어요. 지금이 가장 깊은 층이에요.</p>'
     }</section>`;
 }
@@ -455,8 +501,9 @@ function memberChip(id: string, now: number, zoneId = ''): string {
   const away = awaySet(S, now).has(id);
   const tired = isTired(S, id, now);
   const on = sel.members.includes(id);
-  const ok = !away && !tired;
-  const note = away ? '탐사 중' : tired ? '부상' : id === 'me' ? '나' : `전투 ${d.stats.str}`;
+  const role = roleOf(S, id);
+  const ok = !away && !tired && !isSick(S, id) && role === 'scout';
+  const note = away ? '탐사 중' : isSick(S, id) ? '앓는 중' : tired ? '부상' : role !== 'scout' ? ROLES[role].name : id === 'me' ? '나' : `전투 ${d.stats.str}`;
   const known = matchKnow(id, zoneId);
   const expert = known.length > 0;
   return `<button class="chip ${on ? 'on' : ''} ${expert ? 'exp' : ''}" data-act="member" data-id="${id}" ${ok ? '' : 'disabled'}>
@@ -466,7 +513,12 @@ function memberChip(id: string, now: number, zoneId = ''): string {
 function exploreHtml(): string {
   const now = Date.now();
   const found = foundCount(S);
-  let h = `<p class="lead">탐사대는 1~3명. 같이 가면 전리품이 늘어요. 들키면 <b>죽는 사람이 나올 수 있고, 죽은 사람은 돌아오지 않아요.</b> 전투가 센 사람과 의료가 높은 사람이 함께 가면 덜 위험해요.</p>`;
+  let h = '';
+  if (S.rescue && !S.exps.some((e) => e.rescue)) {
+    const z = ZONE_BY_ID[S.rescue.zone];
+    h += `<section class="card tip"><h3>📡 구조 신호</h3><p><b>${z.icon} ${z.name}</b>에서 <b>${PROF_BY_ID[S.rescue.prof].title}</b>이(가) 갇혀 있다는 신호가 들어왔어요. ${timeText(S.rescue.deadline - now)} 안에 그 구역으로 탐사대를 보내면 구해 올 수 있어요. 들키면 늦습니다.</p></section>`;
+  }
+  h += `<p class="lead">탐사대는 1~3명. 같이 가면 전리품이 늘어요. 들키면 <b>죽는 사람이 나올 수 있고, 죽은 사람은 돌아오지 않아요.</b> 전투가 센 사람과 의료가 높은 사람이 함께 가면 덜 위험해요.</p>`;
   for (const z of ZONES) {
     const open = isZoneOpen(S, z);
     const cur = sel.zone === z.id;
@@ -479,7 +531,7 @@ function exploreHtml(): string {
       </button>`;
     if (cur && open) {
       const crew = ['me', ...S.crew].sort((x, y) => Number(matchKnow(y, z.id).length > 0) - Number(matchKnow(x, z.id).length > 0));
-      const free = crew.filter((id) => !awaySet(S, now).has(id) && !isTired(S, id, now) && matchKnow(id, z.id).length > 0);
+      const free = crew.filter((id) => availableCrew(S, now).includes(id) && matchKnow(id, z.id).length > 0);
       const hint = free.length
         ? `<p class="exphint ok">🎓 이 구역에 유리한 사람: ${free.map((id) => `<b>${SURV_BY_ID[id].name}</b>(${matchKnow(id, z.id).join('·')})`).join(', ')} — 함께 보내면 들킬 확률 -15%, 전리품 +1, 물자 +15%</p>`
         : `<p class="exphint dim">🎓 지금 이 구역을 잘 아는 사람이 없어요. (필요한 경험: ${z.know.map((k) => KNOW_NAME[k]).join(' · ')})</p>`;
@@ -497,11 +549,13 @@ function exploreHtml(): string {
                <span class="${deathPct >= 10 ? 'bad' : deathPct > 0 ? 'warn' : 'ok'}">☠ 누군가 죽을 확률 ${deathPct}%</span></div>
                ${deathList ? `<p class="dim sm">들키면 죽을 확률: ${deathList}</p>` : ''}
                ${pv.experts.length ? `<p class="ok sm">🎓 ${pv.experts.map((m) => SURV_BY_ID[m].name).join('·')}: 이 구역을 잘 알아요 (들킬 확률 -${Math.round((1 - 0.85 ** pv.experts.length) * 100)}% · 전리품 +${pv.experts.length} · 물자 +${15 * pv.experts.length}%)</p>` : ''}
+               ${pv.supplyMult < 0.95 ? `<p class="warn sm">🧹 이 구역은 최근 많이 털려서 물자가 ${Math.round((1 - pv.supplyMult) * 100)}% 줄어요. 한동안 쉬게 두면 돌아와요.</p>` : ''}
                ${pv.friends ? `<p class="dim sm">🤝 친한 사이가 함께 가서 서로 챙겨요 (들킬 확률 -10% · 죽을 확률 -15%)</p>` : ''}
                ${pv.rivals ? `<p class="warn sm">⚡ 사이 나쁜 두 사람이 함께 가요 (들킬 확률 +20%)</p>` : ''}`
             : '<div class="pv dim">함께 갈 사람을 골라 주세요.</div>'
         }
-        <button class="btn primary wide" data-act="go" ${pv ? '' : 'disabled'}>출발하기</button></div>`;
+        <button class="btn primary wide" data-act="go" ${pv ? '' : 'disabled'}>출발하기</button>
+        ${S.rescue && S.rescue.zone === z.id && !S.exps.some((e) => e.rescue) ? `<button class="btn wide" data-act="rescue-go" ${pv ? '' : 'disabled'}>📡 구조 신호를 따라 나가기 (${PROF_BY_ID[S.rescue.prof].title})</button>` : ''}</div>`;
     }
     h += `</section>`;
   }
@@ -545,7 +599,14 @@ function crewHtml(): string {
     const d = SURV_BY_ID[id];
     const a = affinity(S, id);
     const ch = chapterReached(S, id);
-    const status = away.has(id) ? '<em class="st away">탐사 중</em>' : isTired(S, id, now) ? '<em class="st tired">지침</em>' : '<em class="st home">매장</em>';
+    const r = roleOf(S, id);
+    const status = isSick(S, id)
+      ? '<em class="st tired">🤒 앓는 중</em>'
+      : away.has(id)
+        ? '<em class="st away">탐사 중</em>'
+        : isTired(S, id, now)
+          ? '<em class="st tired">지침</em>'
+          : `<em class="st home">${ROLES[r].icon} ${ROLES[r].name}</em>`;
     return `<button class="card crew" data-act="surv" data-id="${id}">
       ${pt(id)}
       <span class="ct"><b>${gm(id)}${d.name} ${status}</b><small>${gname(id)} · ${d.title}</small>
@@ -569,7 +630,7 @@ function crewHtml(): string {
     h += `<section class="card grave"><h3>🪦 추모비 <b class="big">${S.dead.length}</b></h3><ul class="graves">`;
     for (const g of [...S.dead].reverse()) {
       const d = SURV_BY_ID[g.id];
-      h += `<li>${pt(g.id, 'pt xs', true)}<span><b>${gm(g.id)}${d.name}</b> <small>${d.title} · ${g.day}일째 · ${g.zone === 'exile' ? '추방' : ZONE_BY_ID[g.zone].name}</small><i>${g.last}</i></span></li>`;
+      h += `<li>${pt(g.id, 'pt xs', true)}<span><b>${gm(g.id)}${d.name}</b> <small>${d.title} · ${g.day}일째 · ${graveWhere(g.zone)}</small><i>${g.last}</i></span></li>`;
     }
     h += `</ul></section>`;
   }
@@ -581,6 +642,7 @@ function crewHtml(): string {
 // ---------- 시작 화면: 출신 · 직업 · 외형 ----------
 
 interface CC {
+  trait: string;
   step: number;
   origin: string;
   job: string;
@@ -622,6 +684,7 @@ function openIntro(): void {
     step: 0,
     origin: 'tenant',
     job: 'clerk',
+    trait: pick(TRAITS).id,
     name: pick(NAME_POOL.m),
     gender: 'm',
     skin: pick(LOOK_OPTS.skins.slice(0, 4)),
@@ -692,7 +755,9 @@ function renderCreate(): void {
       <div class="stats-roll">${statBars(cc.stats, cc.origin, cc.job)}</div>
       <p class="dim sm">능력치는 직업·출신 범위 안에서 무작위로 정해져요. 마음에 안 들면 다시 굴릴 수 있어요 (${cc.rerolls}번 남음).</p>
       <button class="btn wide" data-act="cc-roll" ${cc.rerolls > 0 ? '' : 'disabled'}>🎲 다시 굴리기</button>
-      <p class="dim sm">출신 · ${o.perk}<br>직업 · ${j.perk}</p>`;
+      <p class="dim sm">출신 · ${o.perk}<br>직업 · ${j.perk}</p>
+      <div class="cc-row"><b>지휘 특성</b>${TRAITS.map((x) => `<button class="chip sm ${cc.trait === x.id ? 'on' : ''}" data-act="cc-trait" data-id="${x.id}">${x.icon} ${x.name}</button>`).join('')}</div>
+      <p class="dim sm">${TRAIT_BY_ID[cc.trait].icon} ${TRAIT_BY_ID[cc.trait].text}</p>`;
   }
   openModal(
     'intro',
@@ -717,6 +782,7 @@ function openSettings(): void {
     `<h2>설정</h2>
     <p class="dim">저장은 이 기기의 브라우저에만 됩니다. 접속하지 않아도 시간은 흘러 식량과 물이 줄고 탐사가 진행돼요.</p>
     <p class="dim sm">시험용: 주소 끝에 <b>?speed=30</b> 을 붙이면 시간이 30배 빨라져요.</p>
+    <button class="btn wide" data-act="hall">🏆 명예의 전당</button>
     <button class="btn danger wide" data-act="reset1">처음부터 다시 하기</button>
     <button class="btn wide" data-act="close">닫기</button>`,
   );
@@ -831,13 +897,25 @@ function survModal(id: string): void {
         : `<div class="chap lock"><b>${i + 1}장</b><p>🔒 호감도 ${CHAPTER_AFF[i]} 필요</p></div>`;
     });
     h += `</div>`;
+    const rr = roleOf(S, id);
+    h += `<div class="cc-row"><b>맡은 일</b>${(Object.keys(ROLES) as Role[]).map((k) => `<button class="chip sm ${rr === k ? 'on' : ''}" data-act="role" data-id="${id}" data-role="${k}">${ROLES[k].icon} ${ROLES[k].name}</button>`).join('')}</div>
+      <p class="dim sm">${ROLES[rr].text}</p>`;
+    if (isSick(S, id)) {
+      const left = S.sick[id].deadline - Date.now();
+      h += `<p class="bad sm">🤒 앓고 있어요. ${timeText(left)} 안에 치료하지 않으면 목숨이 위험해요.</p>
+        <button class="btn primary wide" data-act="treat" data-id="${id}" ${S.res.med >= treatCost(S) ? '' : 'disabled'}>💊 치료한다 (의약품 ${treatCost(S)})</button>`;
+    }
     if (say) h += `<p class="say">${say}</p>`;
     h += `<div class="row2"><button class="btn primary" data-act="talk" data-id="${id}">💬 대화하기</button>
       <button class="btn" data-act="gift-open" data-id="${id}">🎁 선물하기</button></div>`;
     const likes = d.likes.items.map((i) => ITEM_BY_ID[i].name);
     h += `<p class="dim sm">좋아하는 것: ${likes.join(', ')}${d.likes.cat ? ` · ${CATS[d.likes.cat].name}` : ''}</p>`;
   } else {
+    const tr = TRAIT_BY_ID[S.player.trait];
+    const nk = nickname(S);
     h += `<p class="statline">${(Object.keys(STAT_NAME) as (keyof typeof STAT_NAME)[]).map((k) => `<span>${STAT_NAME[k]} <b>${d.stats[k]}</b></span>`).join('')}</p>
+      ${tr ? `<p class="buffline">${tr.icon} ${tr.name} — ${tr.text}</p>` : ''}
+      ${nk ? `<p class="tier tier-skilled">🏷 별명: ${nk}</p>` : ''}
       <p class="story">"${d.chat[Math.floor(Math.random() * d.chat.length)]}"</p>`;
   }
   h += `<button class="btn wide" data-act="close">닫기</button>`;
@@ -982,6 +1060,10 @@ function onClick(e: Event): void {
       cc.acc = cc.acc.includes(id) ? cc.acc.filter((a) => a !== id) : [...cc.acc, id];
       renderCreate();
       break;
+    case 'cc-trait':
+      cc.trait = id;
+      renderCreate();
+      break;
     case 'cc-roll':
       if (cc.rerolls > 0) {
         cc.rerolls -= 1;
@@ -990,7 +1072,7 @@ function onClick(e: Event): void {
       }
       break;
     case 'intro-start': {
-      S = newState(cc.name, Date.now(), { gender: cc.gender, origin: cc.origin, job: cc.job, look: ccLook(), stats: cc.stats ?? rollStats(cc.origin, cc.job) });
+      S = newState(cc.name, Date.now(), { trait: cc.trait, gender: cc.gender, origin: cc.origin, job: cc.job, look: ccLook(), stats: cc.stats ?? rollStats(cc.origin, cc.job) });
       saveState(S);
       modalKind = null;
       $('#modal').classList.add('hide');
@@ -1046,12 +1128,93 @@ function onClick(e: Event): void {
     case 'open-bag':
       openBag(id || undefined);
       break;
-    case 'buy-floor':
-      if (buyFloor(S)) {
-        saveState(S);
-        toast(`${FLOORS[S.floor].name} 개방! 수용 ${capacity(S)}명`, 'good');
-        renderAll();
+    case 'breach-open':
+      openBreach();
+      break;
+    case 'breach-go': {
+      const r = breachFloor(S, now);
+      saveState(S);
+      if (!r.ok) {
+        toast(r.error, 'bad');
+        break;
       }
+      openBreachResult(r);
+      break;
+    }
+    case 'raid':
+      openRaid();
+      break;
+    case 'raid-act': {
+      const r = resolveRaid(S, id as RaidChoice, now);
+      saveState(S);
+      if (r) openRaidResult(r);
+      break;
+    }
+    case 'merchant':
+      openMerchant();
+      break;
+    case 'buy-offer':
+      if (buyOffer(S, id, now)) {
+        saveState(S);
+        toast('거래 성사!', 'good');
+        openMerchant();
+        updateHud();
+      } else toast('병마개가 모자라요.', 'bad');
+      break;
+    case 'sell-res':
+      if (sellRes(S, id as 'food' | 'water', now) > 0) {
+        saveState(S);
+        openMerchant();
+        updateHud();
+      } else toast('팔고 남길 만큼 없어요.', 'bad');
+      break;
+    case 'rescue':
+      openRescue();
+      break;
+    case 'rescue-tab':
+      if (S.rescue) sel = { zone: S.rescue.zone, members: [] };
+      tab = 'explore';
+      closeModal();
+      break;
+    case 'rescue-go': {
+      if (!sel.zone) break;
+      const r = startRescue(S, sel.members, now);
+      if (r.ok) {
+        saveState(S);
+        toast('구조대 출발!', 'good');
+        sel = { zone: null, members: [] };
+        tab = 'home';
+        renderAll();
+      } else toast(r.error, 'bad');
+      break;
+    }
+    case 'role': {
+      const role = el.dataset.role as Role;
+      if (setRole(S, id, role, now)) {
+        saveState(S);
+        survModal(id);
+        renderPanel();
+      } else toast('탐사 중에는 바꿀 수 없어요.', 'bad');
+      break;
+    }
+    case 'treat':
+      if (treat(S, id)) {
+        saveState(S);
+        toast('치료했어요. 한시름 놓았다.', 'good');
+        survModal(id);
+        renderAll();
+      } else toast('의약품이 모자라요.', 'bad');
+      break;
+    case 'tab-crew':
+      tab = 'crew';
+      renderAll();
+      break;
+    case 'hall':
+      openHall();
+      break;
+    case 'new-game':
+      clearState();
+      location.href = location.pathname;
       break;
     case 'buy':
       if (buyUpgrade(S, el.dataset.key as UpgKey)) {
@@ -1140,3 +1303,230 @@ function onClick(e: Event): void {
   }
 }
 
+
+
+// ---------- 사건: 습격 · 상인 · 구조 · 돌파 · 게임 오버 ----------
+
+const DEAD_WHERE: Record<string, string> = { exile: '추방', raid: '습격', sick: '병', breach: '층 돌파' };
+function graveWhere(z: string): string {
+  return DEAD_WHERE[z] ?? ZONE_BY_ID[z]?.name ?? '';
+}
+
+const queued: { kind: string; html: string }[] = [];
+let raidShown = 0;
+
+/** 지금 다른 창이 열려 있으면 줄을 세운다 */
+function showOrQueue(kind: string, html: string): void {
+  if (modalKind === null) openModal(kind, html);
+  else queued.push({ kind, html });
+}
+
+function handleNotices(notes: Notice[]): void {
+  for (const n of notes) {
+    if (n.type === 'raid') toast(S.raid?.kind === 'horde' ? '🧟 좀비 떼가 몰려온다!' : '⚔ 약탈자가 문을 부수려 한다!', 'bad');
+    if (n.type === 'raid_auto') showOrQueue('raidres', raidResultHtml(n.result));
+    if (n.type === 'merchant') toast('🛒 떠돌이 상인이 문 앞에 왔다', 'warm');
+    if (n.type === 'merchant_left') toast('🛒 상인이 떠났다', '');
+    if (n.type === 'sick') toast(`🤒 ${SURV_BY_ID[n.id].name}이(가) 앓기 시작했다`, 'bad');
+    if (n.type === 'sick_death') showOrQueue('sickdead', `<h2>🕯 병을 이기지 못했다</h2><div class="lost">${pt(n.gone.id, 'pt sm', true)}<span><b>${n.gone.name}</b> <small>${n.gone.title}</small><i>${n.gone.last}</i></span></div><button class="btn primary wide" data-act="close">…</button>`);
+    if (n.type === 'rescue') toast('📡 구조 신호가 잡혔다', 'warm');
+    if (n.type === 'rescue_lost') toast('📡 신호가 끊겼다…', 'bad');
+  }
+  if (notes.length) {
+    saveState(S);
+    if (modalKind === null) renderAll();
+    else updateHud();
+  }
+}
+
+/** 열려 있는 창이 없을 때 꼭 봐야 할 것을 차례로 연다 */
+function autoOpen(): void {
+  if (modalKind !== null) return;
+  if (S.over) {
+    openOver();
+    return;
+  }
+  if (queued.length) {
+    const q = queued.shift()!;
+    openModal(q.kind, q.html);
+    return;
+  }
+  if (S.crisis) {
+    openCrisis();
+    return;
+  }
+  if (S.raid && raidShown !== S.raid.deadline) {
+    raidShown = S.raid.deadline;
+    openRaid();
+  }
+}
+
+const goneHtml = (g: Gone[]): string => g.map((d) => `<div class="lost">${pt(d.id, 'pt sm', true)}<span><b>${d.name}</b> <small>${d.title}</small><i>${d.last}</i></span></div>`).join('');
+const resLine = (r: Record<ResKey, number>): string =>
+  (['food', 'water', 'med'] as ResKey[]).filter((k) => r[k] > 0).map((k) => `${RES[k].icon} ${RES[k].name} <b>−${r[k]}</b>`).join(' · ');
+
+function openRaid(): void {
+  const r = S.raid;
+  if (!r) return;
+  const now = Date.now();
+  const def = defense(S, now);
+  const raider = r.kind === 'raider';
+  const guards = S.crew.filter((id) => roleOf(S, id) === 'guard').length;
+  const opts: Record<RaidChoice, string> = {
+    fight: `<button class="btn danger wide" data-act="raid-act" data-id="fight">⚔ 맞서 싸운다 <small>(우리 방어력 ${def} · 상대 ${r.power})</small></button>`,
+    talk: `<button class="btn wide" data-act="raid-act" data-id="talk">🗣 협상한다 <small>(성공 ${Math.round(talkChance(S) * 100)}% · 성공하면 절반만 / 실패하면 더 뺏긴다)</small></button>`,
+    pay: `<button class="btn wide" data-act="raid-act" data-id="pay">🎁 달라는 걸 준다 <small>(싸움은 피하지만 다음에도 온다)</small></button>`,
+    hide: `<button class="btn wide" data-act="raid-act" data-id="hide">🚪 문을 닫고 숨는다 <small>(물자 절반을 잃고, 누군가 물릴 수도)</small></button>`,
+  };
+  openModal(
+    'raid',
+    `<h2>${raider ? '⚔ 약탈자가 찾아왔다' : '🧟 좀비 떼가 몰려온다'}</h2>
+    <p class="story">${raider ? '문 너머에서 낯선 목소리가 외친다. "먹을 걸 내놓고 가만히 있으면 아무도 안 다쳐."' : '벽 너머로 끌리는 소리가 가득하다. 이번 무리는 평소보다 크다.'}</p>
+    <p class="sm">${raider ? '요구' : '뚫리면 잃는 것'}: ${resLine(r.demand).replace(/−/g, '')}</p>
+    <p class="sm ${def >= r.power ? 'ok' : 'warn'}">🛡 우리 방어력 <b>${def}</b> / 상대 <b>${r.power}</b> — 방어조 ${guards}명${guards ? '' : ' (방어조가 없다! 생존자 탭에서 방어조를 정해 두세요)'}</p>
+    ${raidChoices(S).map((c) => opts[c]).join('')}
+    <p class="dim sm">${timeText(r.deadline - now)} 안에 정하지 않으면 ${raider ? '요구를 들어줍니다' : '맞서 싸웁니다'}.</p>
+    <button class="btn wide" data-act="close">잠시 생각한다</button>`,
+  );
+}
+
+function raidResultHtml(r: RaidResult): string {
+  const raider = r.kind === 'raider';
+  const head =
+    r.outcome === 'win' ? '🛡 막아냈다!' : r.outcome === 'deal' ? (r.choice === 'hide' ? '🚪 숨죽여 지나갔다' : '🤝 거래로 끝났다') : raider ? '💥 뚫렸다' : '💥 문이 부서졌다';
+  const story =
+    r.outcome === 'win'
+      ? `방어조가 문 앞에서 버텼다. ${raider ? '약탈자들은 흩어졌고, 두고 간 물건이 있다.' : '좀비 떼는 물러갔다.'}`
+      : r.outcome === 'deal'
+        ? r.choice === 'talk'
+          ? '말이 통했다. 절반만 내주고 돌려보냈다.'
+          : r.choice === 'pay'
+            ? '달라는 만큼 내주자 조용히 돌아갔다. 다음에도 올 것이다.'
+            : '불을 끄고 숨을 죽였다. 한참 뒤에야 소리가 멀어졌다.'
+        : r.choice === 'talk'
+          ? '말이 먹히지 않았다. 더 많이 빼앗겼다.'
+          : '지키는 힘이 모자랐다. 비축이 털리고 사람이 다쳤다.';
+  return `<h2>${head}${r.auto ? ' <small>(정하지 않아 자동 처리)</small>' : ''}</h2>
+    <p class="story">${story}</p>
+    ${r.roll ? `<p class="dim sm">방어력 ${r.roll} / 상대 ${r.power}</p>` : ''}
+    ${goneHtml(r.dead)}
+    ${r.hurt.length ? `<p class="warn sm">🩹 다친 사람: ${r.hurt.map((id) => SURV_BY_ID[id].name).join(', ')}</p>` : ''}
+    ${r.sick.length ? `<p class="bad sm">🤒 물린 사람이 있다: ${r.sick.map((id) => SURV_BY_ID[id].name).join(', ')} (치료하지 않으면 위험해요)</p>` : ''}
+    ${resLine(r.lost) ? `<p class="supplies">${resLine(r.lost)}</p>` : ''}
+    ${r.caps ? `<p class="gain">● +${fmt(r.caps)}</p>` : ''}
+    <button class="btn primary wide" data-act="close">알겠다</button>`;
+}
+
+function openRaidResult(r: RaidResult): void {
+  openModal('raidres', raidResultHtml(r));
+  renderStageActions();
+}
+
+function openMerchant(): void {
+  const m = S.merchant;
+  const now = Date.now();
+  if (!m || m.until <= now) {
+    toast('상인은 이미 떠났어요.', '');
+    closeModal();
+    return;
+  }
+  const mm = marketMult(S);
+  const rows = m.offers
+    .map(
+      (o) => `<div class="upg"><div class="ui">${RES[o.res].icon}</div><div class="ut"><b>${RES[o.res].name} ${o.amount}</b><span>${o.sold ? '팔렸어요' : '떠돌이 상인의 물건'}</span></div>
+      ${o.sold ? '<span class="max">SOLD</span>' : `<button class="btn sm ${S.caps >= o.price ? 'primary' : ''}" data-act="buy-offer" data-id="${o.id}" ${S.caps >= o.price ? '' : 'disabled'}>● ${o.price}</button>`}</div>`,
+    )
+    .join('');
+  openModal(
+    'merchant',
+    `<h2>🛒 떠돌이 상인</h2>
+    <p class="story">짐을 가득 진 사내가 문틈으로 물건을 내민다. "오래 못 있어요. 필요한 것만 골라요."</p>
+    <p class="dim sm">${timeText(m.until - now)} 뒤에 떠나요 · 시세 ${mm < 1 ? `${Math.round((1 - mm) * 100)}% 할인` : '정가'}${S.rep.market > 0 ? ' (단골이라 값을 깎아 줘요)' : ''}</p>
+    ${rows}
+    <div class="row2"><button class="btn" data-act="sell-res" data-id="food" ${S.res.food >= 20 ? '' : 'disabled'}>🍞 10 팔기</button><button class="btn" data-act="sell-res" data-id="water" ${S.res.water >= 20 ? '' : 'disabled'}>💧 10 팔기</button></div>
+    <button class="btn wide" data-act="close">닫기</button>`,
+  );
+}
+
+function openRescue(): void {
+  const r = S.rescue;
+  if (!r) return;
+  const z = ZONE_BY_ID[r.zone];
+  const pd = PROF_BY_ID[r.prof];
+  openModal(
+    'rescue',
+    `<h2>📡 구조 신호</h2>
+    <div class="vis"><img class="pt lg" src="${profPortraitURL(r.prof)}" alt=""></div>
+    <p class="story">낡은 무전기에서 가느다란 목소리가 반복된다. "${z.name}… 누구 없어요… 저는 <b>${pd.title}</b>입니다… 도와주세요…"</p>
+    <p class="sm">${z.icon} ${z.name} · ⏱ ${timeText(r.deadline - Date.now())} 안에 도착해야 해요.</p>
+    <p class="dim sm">탐사 탭에서 그 구역으로 탐사대를 꾸려 <b>구조 신호를 따라 나가기</b>를 누르세요. 들키면 구하지 못합니다. 자리(침대)가 있어야 데려올 수 있어요.</p>
+    <button class="btn primary wide" data-act="rescue-tab">구조대 꾸리러 가기</button>
+    <button class="btn wide" data-act="close">닫기</button>`,
+  );
+}
+
+function openBreach(): void {
+  const now = Date.now();
+  const pv = previewBreach(S, now);
+  if (!pv) return;
+  const nx = nextFloor(S)!;
+  const guards = S.crew.filter((id) => roleOf(S, id) === 'guard').length;
+  const ratio = pv.defense / pv.power;
+  openModal(
+    'breach',
+    `<h2>⛏ ${pv.name} — 아래로 파고 내려간다</h2>
+    <p class="story">새 층으로 통하는 문을 여는 순간, 어둠 속에 있던 것들이 한꺼번에 깨어난다.</p>
+    <p class="sm">수용 ${capacity(S)}명 → <b>${nx.cap}명</b> · 공사비 ● ${fmt(pv.cost)}</p>
+    <p class="sm ${ratio >= 1 ? 'ok' : ratio >= 0.7 ? 'warn' : 'bad'}">🛡 우리 방어력 <b>${pv.defense}</b> / 몰려오는 무리 <b>${pv.power}</b> — 방어조 ${guards}명${ratio >= 1.15 ? ' · 넉넉해요' : ratio >= 0.85 ? ' · 아슬아슬해요' : ' · 많이 모자라요'}</p>
+    <p class="dim sm">실패하면 공사비의 60%를 날리고, 막던 사람이 다치거나 목숨을 잃을 수 있어요. 방어조를 늘려 보세요.</p>
+    <button class="btn primary wide" data-act="breach-go" ${S.caps >= pv.cost ? '' : 'disabled'}>돌파한다</button>
+    <button class="btn wide" data-act="close">더 준비한다</button>`,
+  );
+}
+
+function openBreachResult(r: Extract<ReturnType<typeof breachFloor>, { ok: true }>): void {
+  openModal(
+    'breachres',
+    `<h2>${r.win ? `🎉 ${FLOORS[S.floor].name} 개방!` : '💥 돌파에 실패했다'}</h2>
+    <p class="story">${r.win ? `방어조가 문 앞을 지켜냈다. 새 층에 침대를 놓을 수 있다. 수용 ${capacity(S)}명.` : '무리를 막지 못하고 문을 다시 닫았다. 공사비가 날아갔다.'}</p>
+    <p class="dim sm">방어력 ${r.roll} / 무리 ${r.power}</p>
+    ${goneHtml(r.dead)}
+    ${r.hurt.length ? `<p class="warn sm">🩹 다친 사람: ${r.hurt.map((id) => SURV_BY_ID[id].name).join(', ')}</p>` : ''}
+    <p class="supplies">● ${r.win ? '' : '−'}${fmt(r.lostCaps)}${r.win ? ' 사용' : ' 손실'}</p>
+    <button class="btn primary wide" data-act="close">알겠다</button>`,
+  );
+  renderAll();
+}
+
+function hallHtml(): string {
+  const h = loadHall();
+  if (!h.length) return '<p class="dim sm">아직 기록이 없어요. 이야기가 끝나면 이곳에 이름이 남아요.</p>';
+  return `<ul class="graves">${h
+    .map(
+      (e, i) =>
+        `<li><span><b>${i + 1}. ${e.name}${e.nick ? ` <small>『${e.nick}』</small>` : ''}</b> <small>${e.origin} · ${e.job}${e.trait ? ` · ${e.trait}` : ''}</small><i>${e.days}일 생존 · ${e.floor}층 · 최대 ${e.maxCrew}명 · 떠나보낸 사람 ${e.dead}명 — ${e.cause}</i></span></li>`,
+    )
+    .join('')}</ul>`;
+}
+
+function openHall(): void {
+  openModal('hall', `<h2>🏆 명예의 전당</h2>${hallHtml()}<button class="btn wide" data-act="close">닫기</button>`);
+}
+
+function openOver(): void {
+  if (!S.over) return;
+  recordHall(S);
+  saveState(S);
+  const nk = nickname(S);
+  const l = S.log;
+  openModal(
+    'over',
+    `<h2>🕯 ${S.name}의 이야기가 끝났다</h2>
+    <div class="vis">${pt('me', 'pt lg', true)}</div>
+    <p class="story">${S.over.cause}.<br><i>${S.over.last}</i></p>
+    ${nk ? `<p class="tier tier-skilled">🏷 사람들은 ${S.name}을(를) 『${nk}』(이)라고 불렀다</p>` : ''}
+    <p class="dim sm">${S.over.day}일 생존 · ${FLOORS[S.floor].name} · 가장 많이 모였을 때 ${l.maxCrew}명 · 떠나보낸 사람 ${S.dead.length}명${l.exiled ? ` (추방 ${l.exiled})` : ''}${l.healed ? ` · 치료 ${l.healed}` : ''}${l.rescued ? ` · 구조 ${l.rescued}` : ''}</p>
+    ${hallHtml()}
+    <button class="btn primary wide" data-act="new-game">새 이야기를 시작한다</button>`,
+  );
+}
