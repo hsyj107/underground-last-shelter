@@ -403,6 +403,19 @@ function supplyHtml(now: number): string {
   return h;
 }
 
+/** 이 구역에 유리한 분야를 가진 사람의 해당 분야들 */
+function matchKnow(id: string, zoneId: string): string[] {
+  const z = ZONES.find((x) => x.id === zoneId);
+  const d = SURV_BY_ID[id];
+  if (!z || !d) return [];
+  return d.know.filter((k) => z.know.includes(k)).map((k) => KNOW_NAME[k]);
+}
+
+function zoneExperts(zoneId: string, now: number): string {
+  const ids = ['me', ...S.crew].filter((id) => matchKnow(id, zoneId).length > 0 && !awaySet(S, now).has(id) && !isTired(S, id, now));
+  return ids.length ? ` → <b>${ids.map((id) => SURV_BY_ID[id].name).join(', ')}</b>` : ' → 지금 없음';
+}
+
 function memberChip(id: string, now: number, zoneId = ''): string {
   const d = SURV_BY_ID[id];
   const away = awaySet(S, now).has(id);
@@ -410,10 +423,10 @@ function memberChip(id: string, now: number, zoneId = ''): string {
   const on = sel.members.includes(id);
   const ok = !away && !tired;
   const note = away ? '탐사 중' : tired ? '부상' : id === 'me' ? '나' : `전투 ${d.stats.str}`;
-  const zone = zoneId ? ZONES.find((z) => z.id === zoneId) : undefined;
-  const expert = !!zone && d.know.some((k) => zone.know.includes(k));
+  const known = matchKnow(id, zoneId);
+  const expert = known.length > 0;
   return `<button class="chip ${on ? 'on' : ''} ${expert ? 'exp' : ''}" data-act="member" data-id="${id}" ${ok ? '' : 'disabled'}>
-    ${pt(id, 'pt sm')}<b>${expert ? '🎓 ' : ''}${d.name}</b><small>${note}</small></button>`;
+    ${expert ? '<i class="expbadge">🎓 경험자</i>' : ''}${pt(id, 'pt sm')}<span class="cn"><b>${d.name}</b><small>${expert ? `${known.join('·')} · ` : ''}${note}</small></span></button>`;
 }
 
 function exploreHtml(): string {
@@ -427,18 +440,22 @@ function exploreHtml(): string {
     h += `<section class="card zone ${open ? '' : 'locked'} ${cur ? 'cur' : ''}">
       <button class="zone-h" data-act="zone" data-id="${z.id}" ${open ? '' : 'disabled'}>
         <span class="zi">${open ? z.icon : '🔒'}</span>
-        <span class="zt"><b>${z.name}</b><small>${open ? z.blurb : `도감 ${z.unlock}종 발견 시 열려요 (${found}/${z.unlock})`}</small>${open ? `<small class="know">🎓 ${z.know.map((k) => KNOW_NAME[k]).join(' · ')} 경험자 유리</small>` : ''}</span>
+        <span class="zt"><b>${z.name}</b><small>${open ? z.blurb : `도감 ${z.unlock}종 발견 시 열려요 (${found}/${z.unlock})`}</small>${open ? `<small class="know">🎓 ${z.know.map((k) => KNOW_NAME[k]).join(' · ')} 경험자 유리${zoneExperts(z.id, now)}</small>` : ''}</span>
         <span class="zm"><i class="sk">${skulls}</i><small>${z.minutes}분~</small></span>
       </button>`;
     if (cur && open) {
-      const crew = ['me', ...S.crew];
+      const crew = ['me', ...S.crew].sort((x, y) => Number(matchKnow(y, z.id).length > 0) - Number(matchKnow(x, z.id).length > 0));
+      const free = crew.filter((id) => !awaySet(S, now).has(id) && !isTired(S, id, now) && matchKnow(id, z.id).length > 0);
+      const hint = free.length
+        ? `<p class="exphint ok">🎓 이 구역에 유리한 사람: ${free.map((id) => `<b>${SURV_BY_ID[id].name}</b>(${matchKnow(id, z.id).join('·')})`).join(', ')} — 함께 보내면 들킬 확률 -15%, 전리품 +1, 물자 +15%</p>`
+        : `<p class="exphint dim">🎓 지금 이 구역을 잘 아는 사람이 없어요. (필요한 경험: ${z.know.map((k) => KNOW_NAME[k]).join(' · ')})</p>`;
       const pv = sel.members.length ? previewExpedition(S, z.id, sel.members) : null;
       const riskPct = pv ? Math.round(pv.risk * 100) : 0;
       const deathPct = pv ? Math.round(pv.anyDeath * 100) : 0;
       const deathList = pv
         ? sel.members.filter((m) => pv.deathIf[m] > 0).map((m) => `${SURV_BY_ID[m].name} ${Math.round(pv.deathIf[m] * 100)}%`).join(' · ')
         : '';
-      h += `<div class="team"><div class="chips">${crew.map((id) => memberChip(id, now, z.id)).join('')}</div>
+      h += `<div class="team">${hint}<div class="chips">${crew.map((id) => memberChip(id, now, z.id)).join('')}</div>
         ${
           pv
             ? `<div class="pv"><span>⏱ ${timeText(pv.ms)}</span><span>🎒 전리품 ${pv.loot}개</span>

@@ -263,7 +263,14 @@ label.nm { display: block; margin: 10px 0; color: var(--dim); font-size: 12px; t
 .sb .bar { height: 10px; }
 .sb b { color: var(--warm); text-align: right; }
 .sb small { color: var(--dim); font-size: 11px; }
-.chip.exp:not(.on) { box-shadow: inset 0 0 0 2px #6a9a5a; }
+.chip { position: relative; }
+.chip .cn { display: flex; flex-direction: column; }
+.chip.exp { padding-top: 13px; background: #25361f; box-shadow: inset 0 0 0 2px #6a9a5a, 0 0 8px rgba(106,154,90,.55); }
+.chip.exp.on { background: #3a4a24; box-shadow: inset 0 0 0 2px var(--warm), 0 0 10px rgba(255,200,80,.5); }
+.expbadge { position: absolute; top: -9px; left: 6px; font-style: normal; font-size: 10px; font-weight: bold; background: #6a9a5a; color: #0d1a0b; padding: 1px 6px; border: 1px solid #000; }
+.team .chips { padding-top: 8px; }
+.exphint { margin: 4px 0 2px; font-size: 12px; line-height: 1.5; }
+.exphint.ok { color: #9ad08a; } .exphint b { color: #d8f0c8; }
 .zone small.know { display: block; color: #8ac07a; margin-top: 2px; }
 p.ok { color: var(--good); }
 .rel-line { display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; }
