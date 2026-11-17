@@ -125,6 +125,12 @@ export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, o: Pose
   rect(3, legY + lh, 2, 1, look.shoes);
   rect(7, legY + rh, 2, 1, look.shoes);
 
+  // 치마 (여성): 다리 윗부분을 치마 색으로 덮는다
+  if (look.skirt) {
+    rect(2, legY - 1, 8, 3, look.pants);
+    rect(2, legY + 1, 8, 1, look.top2);
+  }
+
   // 몸통과 팔
   const bodyH = legY - 7;
   const swing = o.moving ? (f === 0 ? 1 : -1) : 0;
@@ -187,6 +193,17 @@ export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, o: Pose
   rect(7, 3 + hb, 1, 2, '#2a1a14');
   rect(3, 5 + hb, 1, 1, '#f08a7a');
   rect(8, 5 + hb, 1, 1, '#f08a7a');
+  if (look.f) {
+    // 속눈썹과 입술
+    rect(3, 3 + hb, 1, 1, '#2a1a14');
+    rect(8, 3 + hb, 1, 1, '#2a1a14');
+    rect(5, 6 + hb, 2, 1, '#d8506a');
+    // 머리 리본
+    if ((look.style === 'long' || look.style === 'bun') && !acc.includes('cap') && !acc.includes('beret') && !acc.includes('chefhat') && !acc.includes('nursecap')) {
+      rect(8, 0 + hb, 2, 2, '#e86a9a');
+      rect(8, 0 + hb, 1, 1, '#ffb0cc');
+    }
+  }
 
   // 장신구
   for (const a of acc) {

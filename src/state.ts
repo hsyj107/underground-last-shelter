@@ -3,12 +3,16 @@ import {
   CAT_NAMES,
   CHAPTER_AFF,
   DARK_HAIRS,
-  GIVEN,
+  GIVEN_F,
+  GIVEN_M,
+  NO_SKIRT,
+  PROF_FEMALE,
   ITEMS,
   JOB_BY_ID,
   ITEM_BY_ID,
   KID_NAMES,
-  OLD_GIVEN,
+  OLD_GIVEN_F,
+  OLD_GIVEN_M,
   ORIGIN_BY_ID,
   PROD,
   PROFS,
@@ -371,20 +375,43 @@ function usedNames(s: State): Set<string> {
   return new Set(Object.values(s.people).map((p) => p.name));
 }
 
-function makeName(s: State, kind: ProfDef['names']): string {
+function makeName(s: State, kind: ProfDef['names'], gender: Gender): string {
   const used = usedNames(s);
+  const given = gender === 'f' ? GIVEN_F : GIVEN_M;
+  const oldGiven = gender === 'f' ? OLD_GIVEN_F : OLD_GIVEN_M;
   for (let i = 0; i < 30; i++) {
     let n: string;
     if (kind === 'cat') n = choice(CAT_NAMES);
     else if (kind === 'kid') n = choice(KID_NAMES);
-    else if (kind === 'old') n = choice(SURNAMES) + choice(OLD_GIVEN);
-    else n = choice(SURNAMES) + choice(GIVEN);
+    else if (kind === 'old') n = choice(SURNAMES) + choice(oldGiven);
+    else n = choice(SURNAMES) + choice(given);
     if (!used.has(n)) return n;
   }
-  return choice(SURNAMES) + choice(GIVEN) + '2';
+  return choice(SURNAMES) + choice(given) + '2';
 }
 
-/** 직업의 핵심 능력치는 보장 범위 안에서, 겉모습과 이름은 무작위로 */
+const FEMALE_STYLES: Look['style'][] = ['long', 'bun'];
+const MALE_STYLES: Look['style'][] = ['short', 'short', 'tuft', 'bald'];
+
+/** 직업의 기본 외형에 성별에 맞는 머리·수염·치마를 입힌다 */
+function lookFor(prof: ProfDef, gender: Gender): Look {
+  const look: Look = { ...prof.look, acc: [...prof.look.acc] };
+  look.f = gender === 'f';
+  if (look.cat) return look;
+  look.skin = choice(SKINS);
+  look.hair = choice(prof.hairs ?? DARK_HAIRS);
+  const pool = gender === 'f' ? FEMALE_STYLES : MALE_STYLES;
+  const fit = (prof.styles ?? []).filter((x) => pool.includes(x));
+  look.style = choice(fit.length ? fit : pool.filter((x) => x !== 'bald' || (!look.kid && prof.names !== 'kid')));
+  if (gender === 'f') {
+    look.acc = look.acc.filter((a) => a !== 'beard');
+    if (!NO_SKIRT.has(prof.id) && rng() < 0.5) look.skirt = true;
+  } else if (!look.kid && prof.names !== 'old' && !look.acc.includes('beard') && !look.acc.includes('chefhat') && rng() < 0.18) {
+    look.acc.push('beard');
+  }
+  return look;
+}
+
 export function makePerson(s: State, prof: ProfDef): Person {
   const id = `p${s.nextPid++}`;
   const stats: Stats = {
@@ -393,13 +420,9 @@ export function makePerson(s: State, prof: ProfDef): Person {
     med: randInt(...prof.range.med),
     cha: randInt(...prof.range.cha),
   };
-  const look: Look = { ...prof.look, acc: [...prof.look.acc] };
-  if (!look.cat) {
-    look.skin = choice(SKINS);
-    look.hair = choice(prof.hairs ?? DARK_HAIRS);
-    if (prof.styles) look.style = choice(prof.styles);
-  }
-  const person: Person = { id, prof: prof.id, name: makeName(s, prof.names), look, stats };
+  const gender: Gender = rng() < (PROF_FEMALE[prof.id] ?? 0.5) ? 'f' : 'm';
+  const look = lookFor(prof, gender);
+  const person: Person = { id, prof: prof.id, name: makeName(s, prof.names, gender), look, stats, gender };
   s.people[id] = person;
   registerPerson(person);
   return person;

@@ -718,3 +718,47 @@ test('거주 구역 데이터: 수용 인원은 층마다 늘고 비용도 늘�
   }
   assert.equal(FLOORS[0].cost, 0);
 });
+
+test('성별: 이름·머리 모양·그림 표시가 성별과 맞고, 직업별로 비율이 다르다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0);
+  let nurseF = 0;
+  let plumberF = 0;
+  for (let i = 0; i < 300; i++) {
+    for (const prof of PROFS) {
+      if (prof.names === 'cat') continue;
+      const p = g.makePerson(s, prof);
+      assert.ok(p.gender === 'f' || p.gender === 'm');
+      assert.equal(!!p.look.f, p.gender === 'f', `${prof.id} look.f`);
+      if (p.gender === 'f') {
+        assert.ok(p.look.style === 'long' || p.look.style === 'bun', `여성 머리 ${p.look.style}`);
+        assert.ok(!p.look.acc.includes('beard'), '여성은 수염 없음');
+        assert.equal(SURV_BY_ID[p.id].gender, 'f');
+      } else {
+        assert.ok(p.look.style !== 'long' && p.look.style !== 'bun', `남성 머리 ${p.look.style}`);
+        assert.ok(!p.look.skirt);
+      }
+      if (prof.id === 'nurse' && p.gender === 'f') nurseF++;
+      if (prof.id === 'plumber' && p.gender === 'f') plumberF++;
+    }
+    s.people = {};
+  }
+  assert.ok(nurseF > plumberF * 3, `간호사 여성 ${nurseF} vs 배관공 여성 ${plumberF}`);
+});
+
+test('성별 정보가 없는 옛 저장도 머리 모양으로 짐작해서 불러온다', () => {
+  const s = g.newState('a', 0);
+  const p = g.makePerson(s, PROFS.find((x) => x.id === 'nurse')!);
+  delete (s.people[p.id] as { gender?: string }).gender;
+  s.people[p.id].look = { ...s.people[p.id].look, style: 'long' };
+  delete (s.people[p.id].look as { f?: boolean }).f;
+  s.crew.push(p.id);
+  const loaded = JSON.parse(JSON.stringify(s));
+  const mem: Record<string, string> = { 'last-shelter-b7-v1': JSON.stringify(loaded) };
+  (globalThis as { localStorage?: unknown }).localStorage = { getItem: (k: string) => mem[k] ?? null, setItem: (k: string, v: string) => void (mem[k] = v) };
+  const back = g.loadState(Date.now());
+  assert.ok(back);
+  assert.equal(SURV_BY_ID[p.id].gender, 'f');
+  assert.equal(SURV_BY_ID[p.id].look.f, true);
+  delete (globalThis as { localStorage?: unknown }).localStorage;
+});

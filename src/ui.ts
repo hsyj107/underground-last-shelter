@@ -441,6 +441,13 @@ function zoneExperts(zoneId: string, now: number): string {
   return ids.length ? ` → <b>${ids.map((id) => SURV_BY_ID[id].name).join(', ')}</b>` : ' → 지금 없음';
 }
 
+/** 성별 표시 (♂ 파랑 / ♀ 분홍) */
+function gm(id: string): string {
+  const g = SURV_BY_ID[id]?.gender;
+  return g ? `<i class="gd gd-${g}" title="${g === 'f' ? '여성' : '남성'}">${g === 'f' ? '♀' : '♂'}</i>` : '';
+}
+const gname = (id: string): string => (SURV_BY_ID[id]?.gender === 'f' ? '여성' : '남성');
+
 function memberChip(id: string, now: number, zoneId = ''): string {
   const d = SURV_BY_ID[id];
   const away = awaySet(S, now).has(id);
@@ -451,7 +458,7 @@ function memberChip(id: string, now: number, zoneId = ''): string {
   const known = matchKnow(id, zoneId);
   const expert = known.length > 0;
   return `<button class="chip ${on ? 'on' : ''} ${expert ? 'exp' : ''}" data-act="member" data-id="${id}" ${ok ? '' : 'disabled'}>
-    ${expert ? '<i class="expbadge">🎓 경험자</i>' : ''}${pt(id, 'pt sm')}<span class="cn"><b>${d.name}</b><small>${expert ? `${known.join('·')} · ` : ''}${note}</small></span></button>`;
+    ${expert ? '<i class="expbadge">🎓 경험자</i>' : ''}${pt(id, 'pt sm')}<span class="cn"><b>${gm(id)}${d.name}</b><small>${expert ? `${known.join('·')} · ` : ''}${note}</small></span></button>`;
 }
 
 function exploreHtml(): string {
@@ -539,7 +546,7 @@ function crewHtml(): string {
     const status = away.has(id) ? '<em class="st away">탐사 중</em>' : isTired(S, id, now) ? '<em class="st tired">지침</em>' : '<em class="st home">매장</em>';
     return `<button class="card crew" data-act="surv" data-id="${id}">
       ${pt(id)}
-      <span class="ct"><b>${d.name} ${status}</b><small>${d.title}</small>
+      <span class="ct"><b>${gm(id)}${d.name} ${status}</b><small>${gname(id)} · ${d.title}</small>
         ${id === 'me' ? '' : `<small class="buff">${d.buff.text}</small>${cardRel(id)}
         <span class="aff"><span class="bar"><i style="width:${a}%"></i>${CHAPTER_AFF.map((t) => `<u style="left:${t}%"></u>`).join('')}</span><span class="pips">📖 ${ch}/3</span></span>`}
       </span></button>`;
@@ -560,7 +567,7 @@ function crewHtml(): string {
     h += `<section class="card grave"><h3>🪦 추모비 <b class="big">${S.dead.length}</b></h3><ul class="graves">`;
     for (const g of [...S.dead].reverse()) {
       const d = SURV_BY_ID[g.id];
-      h += `<li>${pt(g.id, 'pt xs', true)}<span><b>${d.name}</b> <small>${d.title} · ${g.day}일째 · ${g.zone === 'exile' ? '추방' : ZONE_BY_ID[g.zone].name}</small><i>${g.last}</i></span></li>`;
+      h += `<li>${pt(g.id, 'pt xs', true)}<span><b>${gm(g.id)}${d.name}</b> <small>${d.title} · ${g.day}일째 · ${g.zone === 'exile' ? '추방' : ZONE_BY_ID[g.zone].name}</small><i>${g.last}</i></span></li>`;
     }
     h += `</ul></section>`;
   }
@@ -720,7 +727,7 @@ function openVisitor(): void {
   openModal(
     'visitor',
     `<div class="vis">${pt(id, 'pt lg')}</div>
-    <h2>${d.name} <small>${d.title}</small></h2>
+    <h2>${gm(id)}${d.name} <small>${gname(id)} · ${d.title}</small></h2>
     <p class="story">${d.intro}</p>
     <p class="statline">${(Object.keys(STAT_NAME) as (keyof typeof STAT_NAME)[]).map((k) => `<span>${STAT_NAME[k]} <b>${d.stats[k]}</b></span>`).join('')}</p>
     <p class="buffline">✨ ${d.buff.text}</p>
@@ -808,7 +815,7 @@ function survModal(id: string): void {
   const a = affinity(S, id);
   const ch = chapterReached(S, id);
   const isMe = id === 'me';
-  let h = `<div class="vis">${pt(id, 'pt lg')}</div><h2>${d.name} <small>${d.title}</small></h2>`;
+  let h = `<div class="vis">${pt(id, 'pt lg')}</div><h2>${gm(id)}${d.name} <small>${gname(id)} · ${d.title}</small></h2>`;
   if (!isMe) {
     h += `<p class="statline">${(Object.keys(STAT_NAME) as (keyof typeof STAT_NAME)[]).map((k) => `<span>${STAT_NAME[k]} <b>${d.stats[k]}</b></span>`).join('')}</p>
       <p class="buffline">✨ ${d.buff.text}${buffScale(S, id) > 1 ? ' <b>(3장 완료: ×1.5)</b>' : ''}</p>

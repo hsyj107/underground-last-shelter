@@ -211,6 +211,9 @@ export interface Look {
   acc: string[];
   kid?: boolean;
   cat?: boolean;
+  /** 여성이면 그림에 입술·리본이 붙고, skirt 면 치마를 입는다 */
+  f?: boolean;
+  skirt?: boolean;
 }
 
 export type Unlock =
@@ -238,6 +241,7 @@ export interface SurvDef {
   prof: string;
   stats: Stats;
   know: Know[];
+  gender: Gender;
 }
 
 export const CHAPTER_AFF = [20, 50, 100];
@@ -258,6 +262,8 @@ export interface Person {
   name: string;
   look: Look;
   stats: Stats;
+  /** 예전 저장에는 없을 수 있다. 없으면 머리 모양으로 짐작한다 */
+  gender?: Gender;
 }
 
 export interface ProfDef {
@@ -296,6 +302,7 @@ export const PLAYER: SurvDef = {
   prof: 'me',
   stats: { str: 3, agi: 3, med: 3, cha: 4 },
   know: [],
+  gender: 'm',
 };
 
 // ---------- 플레이어 만들기 ----------
@@ -445,8 +452,10 @@ export const SKINS = ['#f4d4b0', '#f0c8a0', '#e8c098', '#e0b088', '#d0a078'];
 export const DARK_HAIRS = ['#2a2a3a', '#3a2a22', '#4a3022', '#4a2a1a', '#1e1e26'];
 
 export const SURNAMES = ['김', '이', '박', '최', '정', '강', '조', '윤', '장', '임', '한', '오', '서', '신', '권', '황', '안', '송', '류', '홍'];
-export const GIVEN = ['지우', '서진', '도연', '지안', '은우', '하람', '시현', '해든', '지오', '라온', '아람', '다온', '이안', '세인', '도하', '한결', '보람', '해솔', '유건', '나윤', '시안', '로아', '예온', '소담'];
-export const OLD_GIVEN = ['만복', '덕팔', '순길', '영철', '봉수', '옥순', '말순', '기태'];
+export const GIVEN_M = ['지우', '서진', '도연', '하람', '시현', '해든', '지오', '라온', '이안', '세인', '도하', '한결', '유건', '시안', '민준', '재원', '태호', '승우', '동현', '우진', '성민', '준서', '형준', '상훈'];
+export const GIVEN_F = ['지안', '은우', '아람', '다온', '보람', '해솔', '나윤', '로아', '예온', '소담', '수아', '하은', '서윤', '지유', '채원', '민서', '유진', '예은', '시은', '다인', '나연', '가은', '소율', '미래'];
+export const OLD_GIVEN_M = ['만복', '덕팔', '순길', '영철', '봉수', '기태', '두식', '판석'];
+export const OLD_GIVEN_F = ['옥순', '말순', '영자', '순덕', '금자', '정숙', '복례', '분이'];
 export const KID_NAMES = ['두리', '콩이', '보리', '하늘', '단비', '초롱', '별이', '새롬'];
 export const CAT_NAMES = ['나비', '치즈', '고등어', '먼지', '두부', '모찌', '삼색이', '까망이'];
 
@@ -603,17 +612,26 @@ export const JOB_KNOW: Record<string, Know[]> = {
   medic: ['medical'], engineer: ['tech', 'auto'], soldier: ['security'], merchant: ['retail', 'food', 'logistics'], clerk: ['office'],
 };
 
+/** 직업별로 여성일 확률 (기본 0.5) */
+export const PROF_FEMALE: Record<string, number> = {
+  nurse: 0.85, teacher: 0.7, pharmacist: 0.6, baker: 0.6, oldlady: 1, bartender: 0.5,
+  soldier: 0.2, firefighter: 0.15, police: 0.3, mechanic: 0.15, electrician: 0.15, plumber: 0.1, trucker: 0.1, rider: 0.3, doctor: 0.45,
+};
+/** 치마를 입지 않는 제복·작업복 직업 */
+export const NO_SKIRT = new Set(['soldier', 'firefighter', 'police', 'mechanic', 'electrician', 'plumber', 'trucker', 'rider', 'paramedic', 'cleaner', 'cat']);
+
 export const PROF_BY_ID: Record<string, ProfDef> = Object.fromEntries(PROFS.map((p) => [p.id, p]));
 
 /** 생존자 한 명을 화면·규칙이 읽는 형태로 합친다 */
 export function makeDef(p: Person): SurvDef {
   const pr = PROF_BY_ID[p.prof];
   const fill = (t: string): string => t.split('{n}').join(p.name);
+  const gender: Gender = p.gender ?? (p.look.f || p.look.style === 'long' || p.look.style === 'bun' ? 'f' : 'm');
   return {
     id: p.id,
     name: p.name,
     title: pr.title,
-    look: p.look,
+    look: p.look.f === undefined ? { ...p.look, f: gender === 'f' } : p.look,
     buff: pr.buff,
     power: 1 + Math.floor((p.stats.str - 1) / 3.5),
     likes: pr.likes,
@@ -625,6 +643,7 @@ export function makeDef(p: Person): SurvDef {
     prof: p.prof,
     stats: p.stats,
     know: PROF_KNOW[p.prof] ?? [],
+    gender,
   };
 }
 
@@ -637,9 +656,10 @@ export function registerPlayer(p: PlayerInfo): void {
     ...PLAYER,
     name: p.name,
     title: `${o?.name ?? ''} · ${jobTitle(p.origin, p.job)}`,
-    look: p.look,
+    look: { ...p.look, f: p.gender === 'f' },
     stats: p.stats,
     know: JOB_KNOW[p.job] ?? [],
+    gender: p.gender,
     power: 1 + Math.floor((p.stats.str - 1) / 3.5),
     chat: j?.chat ?? PLAYER.chat,
   };
