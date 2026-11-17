@@ -322,7 +322,7 @@ test('탐사 보급: 물자가 비축에 더해지고 간호사가 있으면 의
 });
 
 test('굶주림 위기: 오래 굶으면 터지고, 추방하면 입이 하나 준다', () => {
-  g.setRng(Math.random);
+  g.setRng(() => 0); // 능력치를 최소로 고정: 아이(합 12) < 원사(합 14)
   const s = g.newState('a', 0);
   const kid = join(s, 'kid');
   const sol = join(s, 'soldier');
@@ -633,4 +633,52 @@ test('방문자를 돌려보낼 수 있다: 문 앞이 비고 잠시 뒤 다른 
   const ev = g.tick(s, 60_000);
   assert.equal(ev.length, 1);
   assert.notEqual(s.visitor, id);
+});
+
+test('같이 다녀오면 친해지고, 들키면 틀어지며, 불화는 성공으로 풀릴 수 있다', () => {
+  g.setRng(() => 0); // 항상 가장 낮은 값 → 모든 확률 판정이 통과
+  const s = g.newState('a', 0, plain());
+  for (const id of ['f_tuna', 'f_peach', 'f_beans', 'f_spam', 'f_ramen', 'f_snack']) s.found[id] = 1;
+  const a = join(s, 'cook');
+  const b = join(s, 'farmer');
+  const c = join(s, 'teacher');
+  const mk = (caught: boolean): string => {
+    const r = g.startExpedition(s, 'mart', [a, b], 0);
+    assert.ok(r.ok);
+    if (!r.ok) throw new Error();
+    r.exp.result.caught = caught;
+    r.exp.result.deaths = [];
+    r.exp.end = 1;
+    return r.exp.id;
+  };
+  // 성공 → 친구
+  let rep = g.claimExpedition(s, mk(false), 10)!;
+  assert.deepEqual(rep.bonds, [{ a, b, kind: 'friend' }]);
+  assert.equal(g.relOf(s, a, b), 'friend');
+  // 이미 친구면 변화 없음
+  s.tired = {};
+  rep = g.claimExpedition(s, mk(false), 20_000_000)!;
+  assert.deepEqual(rep.bonds, []);
+  // 처음 만난 사이가 들키면 불화
+  s.rel = {};
+  s.tired = {};
+  rep = g.claimExpedition(s, mk(true), 40_000_000)!;
+  assert.deepEqual(rep.bonds, [{ a, b, kind: 'rival' }]);
+  // 불화는 성공하면 풀린다
+  s.tired = {};
+  rep = g.claimExpedition(s, mk(false), 60_000_000)!;
+  assert.deepEqual(rep.bonds, [{ a, b, kind: 'mended' }]);
+  assert.equal(g.relOf(s, a, b), null);
+  void c;
+});
+
+test('친한 사이가 같이 가면 들킬 확률이 낮아진다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0, plain());
+  const a = join(s, 'cook');
+  const b = join(s, 'farmer');
+  const before = g.previewExpedition(s, 'police', [a, b], 0).risk;
+  s.rel[g.relKey(a, b)] = 'friend';
+  const after = g.previewExpedition(s, 'police', [a, b], 0).risk;
+  assert.ok(after < before);
 });

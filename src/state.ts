@@ -565,7 +565,7 @@ export function previewExpedition(s: State, zoneId: string, members: string[], n
     }
   }
   // 불화인 두 사람이 같이 가면 손발이 안 맞아 들킬 확률이 오른다
-  const risk = Math.min(0.5, Math.max(0, (zone.D - power) * 0.12) * guard * (1 + 0.2 * rivals) * 0.85 ** experts.length);
+  const risk = Math.min(0.5, Math.max(0, (zone.D - power) * 0.12) * guard * (1 + 0.2 * rivals) * 0.9 ** Math.min(2, friends) * 0.85 ** experts.length);
   const deathIf: Record<string, number> = {};
   let safe = 1;
   for (const id of members) {
@@ -671,6 +671,37 @@ export interface Report {
   deaths: { id: string; name: string; title: string; last: string }[];
   /** 친구를 잃고 충격받은 사람들 */
   grief: string[];
+  /** 이번 탐사에서 새로 생기거나 바뀐 사이 */
+  bonds: { a: string; b: string; kind: 'friend' | 'rival' | 'mended' }[];
+}
+
+/**
+ * 같이 탐사를 다녀온 사람들 사이의 정. 무사히 다녀오면 친해지고, 들키면 서로 탓하게 된다.
+ * 사이가 나쁜 두 사람도 성공을 함께하면 풀릴 수 있다.
+ */
+function rollBonds(s: State, who: string[], caught: boolean): Report['bonds'] {
+  const out: Report['bonds'] = [];
+  for (let i = 0; i < who.length; i++) {
+    for (let j = i + 1; j < who.length; j++) {
+      const a = who[i];
+      const b = who[j];
+      const cur = relOf(s, a, b);
+      const cha = Math.max(s.people[a]?.stats.cha ?? 3, s.people[b]?.stats.cha ?? 3);
+      if (!caught) {
+        if (!cur && rng() < 0.25 + 0.02 * cha) {
+          s.rel[relKey(a, b)] = 'friend';
+          out.push({ a, b, kind: 'friend' });
+        } else if (cur === 'rival' && rng() < 0.2 + 0.02 * cha) {
+          delete s.rel[relKey(a, b)];
+          out.push({ a, b, kind: 'mended' });
+        }
+      } else if (!cur && rng() < 0.15) {
+        s.rel[relKey(a, b)] = 'rival';
+        out.push({ a, b, kind: 'rival' });
+      }
+    }
+  }
+  return out;
 }
 
 export function claimExpedition(s: State, expId: string, now: number): Report | null {
@@ -680,7 +711,7 @@ export function claimExpedition(s: State, expId: string, now: number): Report | 
   if (e.end > now) return null;
   s.exps.splice(idx, 1);
   const zone = ZONE_BY_ID[e.zone];
-  const duri = e.members.includes('duri');
+  const duri = e.members.some((m) => s.people[m]?.prof === 'kid');
   const items: Report['items'] = [];
   let bonusCaps = 0;
   for (const id of e.result.items) {
@@ -724,6 +755,7 @@ export function claimExpedition(s: State, expId: string, now: number): Report | 
     s.dead.push({ id: dd.id, day: dayNumber(s, now), zone: e.zone, last: dd.last });
     deaths.push({ id: dd.id, name: d.name, title: d.title, last: dd.last });
   }
+  const bonds = rollBonds(s, e.members.filter((m) => m !== 'me' && s.crew.includes(m)), e.result.caught);
   const gone = new Set(deaths.map((d) => d.id));
   const grief = new Set<string>();
   for (const d of deaths) {
@@ -742,7 +774,7 @@ export function claimExpedition(s: State, expId: string, now: number): Report | 
     r.chapters.forEach((c) => chapters.push({ id: m, chapter: c }));
     rewards += r.reward;
   }
-  return { zone: e.zone, items, caps: e.result.caps, bonusCaps, caught: e.result.caught, line: e.result.line, firstClear, chapters, rewards, supplies: sup, deaths, grief: [...grief] };
+  return { zone: e.zone, items, caps: e.result.caps, bonusCaps, caught: e.result.caught, line: e.result.line, firstClear, chapters, rewards, supplies: sup, deaths, grief: [...grief], bonds };
 }
 
 export function setRation(s: State, r: Ration): void {

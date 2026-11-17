@@ -446,7 +446,7 @@ function exploreHtml(): string {
                <span class="${deathPct >= 10 ? 'bad' : deathPct > 0 ? 'warn' : 'ok'}">☠ 누군가 죽을 확률 ${deathPct}%</span></div>
                ${deathList ? `<p class="dim sm">들키면 죽을 확률: ${deathList}</p>` : ''}
                ${pv.experts.length ? `<p class="ok sm">🎓 ${pv.experts.map((m) => SURV_BY_ID[m].name).join('·')}: 이 구역을 잘 알아요 (들킬 확률 -${Math.round((1 - 0.85 ** pv.experts.length) * 100)}% · 전리품 +${pv.experts.length} · 물자 +${15 * pv.experts.length}%)</p>` : ''}
-               ${pv.friends ? `<p class="dim sm">🤝 친한 사이가 함께 가서 서로 챙겨요 (사망 확률 -15%)</p>` : ''}
+               ${pv.friends ? `<p class="dim sm">🤝 친한 사이가 함께 가서 서로 챙겨요 (들킬 확률 -10% · 죽을 확률 -15%)</p>` : ''}
                ${pv.rivals ? `<p class="warn sm">⚡ 사이 나쁜 두 사람이 함께 가요 (들킬 확률 +20%)</p>` : ''}`
             : '<div class="pv dim">함께 갈 사람을 골라 주세요.</div>'
         }
@@ -498,7 +498,7 @@ function crewHtml(): string {
     return `<button class="card crew" data-act="surv" data-id="${id}">
       ${pt(id)}
       <span class="ct"><b>${d.name} ${status}</b><small>${d.title}</small>
-        ${id === 'me' ? '' : `<small class="buff">${d.buff.text}</small>
+        ${id === 'me' ? '' : `<small class="buff">${d.buff.text}</small>${cardRel(id)}
         <span class="aff"><span class="bar"><i style="width:${a}%"></i>${CHAPTER_AFF.map((t) => `<u style="left:${t}%"></u>`).join('')}</span><span class="pips">📖 ${ch}/3</span></span>`}
       </span></button>`;
   };
@@ -729,6 +729,7 @@ function reportHtml(r: Report): string {
   return `<h2>${r.deaths.length ? '🕯 돌아오지 못한 사람이 있다' : r.caught ? '😱 간신히 도망쳐 왔다' : '🎒 탐사대 귀환!'}</h2>
     <p class="story">${z.icon} ${z.name} — ${r.line}</p>
     ${lost}
+    ${r.bonds.map((b) => `<p class="${b.kind === 'rival' ? 'warn' : 'ok'} sm">${b.kind === 'friend' ? '🤝' : b.kind === 'mended' ? '🕊' : '⚡'} ${SURV_BY_ID[b.a].name} · ${SURV_BY_ID[b.b].name} — ${b.kind === 'friend' ? '같이 다녀오면서 가까워졌다' : b.kind === 'mended' ? '같이 고생하며 서먹함이 풀렸다' : '서로 탓하다 사이가 틀어졌다'}</p>`).join('')}
     ${r.grief.length ? `<p class="dim sm">💔 친구를 잃은 ${r.grief.map((g) => SURV_BY_ID[g].name).join(', ')} — 한참 말이 없다. (호감도 -8, 잠시 쉼)</p>` : ''}
     <ul class="loot">${list}</ul>
     <p class="supplies">${(['food', 'water', 'med'] as ResKey[]).filter((k) => r.supplies[k] > 0).map((k) => `${RES[k].icon} ${RES[k].name} <b>+${r.supplies[k]}</b>`).join(' · ')}</p>
@@ -787,6 +788,14 @@ function survModal(id: string): void {
   }
   h += `<button class="btn wide" data-act="close">닫기</button>`;
   openModal('surv', h);
+}
+
+function cardRel(id: string): string {
+  const f = relatives(S, id, 'friend').filter((x) => S.crew.includes(x));
+  const r = relatives(S, id, 'rival').filter((x) => S.crew.includes(x));
+  if (!f.length && !r.length) return '';
+  const nm = (xs: string[]): string => xs.map((x) => SURV_BY_ID[x].name).join(', ');
+  return `<small class="rel-line">${f.length ? `<span class="ok">🤝 ${nm(f)}</span>` : ''}${r.length ? `<span class="warn">⚡ ${nm(r)}</span>` : ''}</small>`;
 }
 
 function relHtml(id: string): string {
