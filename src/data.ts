@@ -623,9 +623,10 @@ export const PROF_FEMALE: Record<string, number> = {
  * 직업의 희소성. 전문직일수록 방문 확률이 낮다.
  * common: 흔한 직업 / skilled: 전문 기술 / expert: 전문직(드묾)
  */
-export type Tier = 'common' | 'skilled' | 'expert';
+export type Tier = 'common' | 'niche' | 'skilled' | 'expert';
 export const TIER: Record<Tier, { weight: number; label: string }> = {
   common: { weight: 1, label: '' },
+  niche: { weight: 0.35, label: '흔치 않은 직업' },
   skilled: { weight: 0.5, label: '전문 기술' },
   expert: { weight: 0.2, label: '전문직 · 드문 손님' },
 };
@@ -633,6 +634,8 @@ export const PROF_TIER: Record<string, Tier> = {
   doctor: 'expert', researcher: 'expert', soldier: 'expert',
   nurse: 'skilled', pharmacist: 'skilled', vet: 'skilled', paramedic: 'skilled', dev: 'skilled',
   firefighter: 'skilled', police: 'skilled', electrician: 'skilled', teacher: 'skilled',
+  // 특이한 직업은 흔하지 않다
+  streamer: 'niche', angler: 'niche', busker: 'niche', bartender: 'niche', pastor: 'niche', trucker: 'niche',
 };
 export const tierOf = (profId: string): Tier => PROF_TIER[profId] ?? 'common';
 
