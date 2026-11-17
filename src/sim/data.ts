@@ -162,6 +162,9 @@ export const STARTING_NAMED: NamedSeed[] = [
   },
 ];
 
+/** 도감에 실리는 이름 있는 생존자 전체 */
+export const allNamed = (): NamedSeed[] => [...STARTING_NAMED, ...Object.values(RECRUIT_NAMED)];
+
 /** 원정에서 만날 수 있는 네임드 */
 export const RECRUIT_NAMED: Record<string, NamedSeed & { rescue: string }> = {
   n_park: {
@@ -239,7 +242,7 @@ const JOB_PROFILE: Record<Job, JobProfile> = {
 };
 
 /** 직업별로 잘 맞는 시설 (1순위·2순위). 나머지는 3순위, 숙소·무기고처럼 안 맞는 곳은 4순위 */
-const JOB_FIT: Record<Job, [FacilityId[], FacilityId[]]> = {
+export const JOB_FIT: Record<Job, [FacilityId[], FacilityId[]]> = {
   engineer: [['power_plant'], ['water_purifier', 'workshop']],
   medic: [['medical'], ['laboratory', 'dormitory']],
   farmer: [['farm'], ['water_purifier', 'dormitory']],

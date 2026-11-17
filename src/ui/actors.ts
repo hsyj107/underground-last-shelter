@@ -20,7 +20,7 @@ interface Actor {
   route: Step[];
 }
 
-export const SHAFT_X = 5;
+export const SHAFT_X = 4;
 const actors = new Map<string, Actor>();
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -85,8 +85,11 @@ function nextStep(g: Game, s: Survivor, a: Actor, night: boolean): Step {
 
 function place(root: HTMLElement, el: HTMLElement, a: Actor, rh: number): void {
   const room = root.querySelector<HTMLElement>(`.room[data-arg="${a.room}"]`);
-  el.style.left = `${a.x}%`;
-  if (room) el.style.top = `${room.offsetTop + room.offsetHeight * 0.92}px`;
+  if (room) {
+    // 방 안쪽 가로 위치(%)를 스택 기준 픽셀로 바꾼다 (왼쪽에 사다리 여백이 있다)
+    el.style.left = `${room.offsetLeft + (room.offsetWidth * a.x) / 100}px`;
+    el.style.top = `${room.offsetTop + room.offsetHeight * 0.92}px`;
+  }
   el.style.height = `${rh * 0.4}px`;
 }
 

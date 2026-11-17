@@ -35,19 +35,26 @@ function tinted(file: string, color: string): string {
   return `<i class="pl tint" style="--img:url(${file});--c:${color}"></i>`;
 }
 
-function layered(look: Look, s: Survivor): string {
+export type FigSrc = Pick<Survivor, 'sprite' | 'look'> & Partial<Pick<Survivor, 'status' | 'hp'>>;
+
+function layered(look: Look, s: FigSrc): string {
   const out: string[] = [];
   out.push(tinted(`assets/parts/body_${num(pickIdx(look.body, parts.body))}.png`, SKIN[look.skin % SKIN.length]));
   if (parts.outfit > 0) out.push(`<img class="pl" src="assets/parts/outfit_${num(pickIdx(look.outfit, parts.outfit))}.png" alt="">`);
   if (parts.hair > 0) out.push(tinted(`assets/parts/hair_${num(pickIdx(look.hair, parts.hair))}.png`, HAIR[look.hairColor % HAIR.length]));
   if (parts.acc > 0 && look.acc % 3 === 0) out.push(`<img class="pl" src="assets/parts/acc_${num(pickIdx(look.acc, parts.acc))}.png" alt="">`);
-  const ov = s.status === 'sick' || s.status === 'critical' ? 'sick' : s.status === 'injured' ? 'hurt' : s.hp < 40 ? 'hungry' : '';
+  const ov = s.status === 'sick' || s.status === 'critical' ? 'sick' : s.status === 'injured' ? 'hurt' : (s.hp ?? 100) < 40 ? 'hungry' : '';
   if (ov && parts.overlays.includes(ov)) out.push(`<img class="pl" src="assets/parts/ov_${ov}.png" alt="">`);
   return out.join('');
 }
 
+/** 둥근 초상화 (머리와 어깨만 잘라서 보여 준다). 그림이 바뀌면 이 함수 안만 고치면 된다 */
+export function avatarHtml(s: FigSrc, extra = ''): string {
+  return `<div class="ava ${extra}">${figureHtml(s, '190%')}</div>`;
+}
+
 /** 생존자 한 명의 모습. height 는 CSS 길이(px 또는 %) */
-export function figureHtml(s: Survivor, height = '100%'): string {
+export function figureHtml(s: FigSrc, height = '100%'): string {
   const look = s.look;
   const scale = look ? 0.94 + (look.height % 100) * 0.0012 : 1;
   const sc = `scale:1 ${scale.toFixed(3)};`;
