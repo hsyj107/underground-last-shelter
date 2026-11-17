@@ -7,7 +7,7 @@ import {
 import { eventView, rollStory } from '../../src/sim/story';
 import { activeThoughts, adjustBond, bondLabel, bondOf, killSurvivor, mentalBreaks } from '../../src/sim/mind';
 import { bodyFactor, injure } from '../../src/sim/body';
-import { autoAssign, craftProsthetic, setAuto, setPrio } from '../../src/sim/engine';
+import { autoAssign, craftProsthetic, rollRelic, setAuto, setPrio } from '../../src/sim/engine';
 import { makeSay } from '../../src/sim/core';
 import type { Game } from '../../src/sim/types';
 
@@ -412,6 +412,22 @@ const clearPending = (g: Game): void => {
   const t = byId(m, 's2')!;
   const note = injure(t, () => 0.1, m.day, true);
   ok(!!note && t.wounds.length === 1, 'injure records a wound');
+}
+
+// 유물 도감: 확률이 맞으면 등록, 중복은 횟수만 증가, 나쁜 굴림이면 없음
+{
+  const g = fresh();
+  const area = AREAS[0];
+  const say = makeSay(g);
+  rollRelic(g, area, () => 0.01, say);
+  const ids = Object.keys(g.codex);
+  ok(ids.length === 1 && g.codex[ids[0]].count === 1, 'relic registered ' + ids);
+  const scrap = g.stock.scrap;
+  rollRelic(g, area, () => 0.01, say);
+  ok(g.codex[ids[0]].count === 2 && g.stock.scrap === scrap + 10, 'duplicate counted');
+  const h = fresh();
+  rollRelic(h, area, () => 0.99, makeSay(h));
+  ok(Object.keys(h.codex).length === 0, 'no relic on bad roll');
 }
 
 void AREAS;

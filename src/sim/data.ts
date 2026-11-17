@@ -388,3 +388,47 @@ export const TITLES: Record<string, TitleDef> = {
   '위태로운 성자': T('위태로운 성자', '모두를 살리려다 곳간이 바닥난다.', { consumption: 1.12, stress: 0.8, loyalty: 1 }, '소비 +12% / 스트레스 증가 -20% / 충성도 +1/일'),
   '방관자': T('방관자', '명령이 없다. 벙커는 스스로 굴러가고 있다.', { stress: 1.25 }, '스트레스 증가 +25%'),
 };
+
+
+// ───────── 유물 도감 ─────────
+// 원정에서 아주 낮은 확률로 나오는 수집품. 그림은 이모지 자리표시자이며 나중에 교체한다.
+
+export type Rarity = 'common' | 'rare' | 'epic' | 'legend';
+export const RARITY_LABEL: Record<Rarity, string> = { common: '흔함', rare: '희귀', epic: '영웅', legend: '전설' };
+/** 등급별 출현 가중치 (⚠ 임시 값) */
+export const RARITY_WEIGHT: Record<Rarity, number> = { common: 68, rare: 24, epic: 7, legend: 1 };
+/** 처음 발견했을 때 받는 고철 */
+export const RARITY_BONUS: Record<Rarity, number> = { common: 10, rare: 30, epic: 70, legend: 150 };
+
+export interface Relic { id: string; name: string; icon: string; area: string; rarity: Rarity; desc: string }
+
+export const RELICS: Relic[] = [
+  { id: 'r_photo', name: '빛바랜 가족사진', icon: '🖼️', area: 'outskirts', rarity: 'common', desc: '웃고 있는 네 식구. 뒷면에는 날짜만 적혀 있다.' },
+  { id: 'r_shoe', name: '한 짝뿐인 운동화', icon: '👟', area: 'outskirts', rarity: 'common', desc: '아이 발에 맞는 크기. 나머지 한 짝은 끝내 찾지 못했다.' },
+  { id: 'r_musicbox', name: '태엽 오르골', icon: '🎵', area: 'outskirts', rarity: 'common', desc: '태엽을 감으면 아직도 소리가 난다. 벙커에서는 아무도 틀지 않는다.' },
+  { id: 'r_diary', name: '누군가의 일기장', icon: '📔', area: 'outskirts', rarity: 'rare', desc: '마지막 장은 "내일은 문을 열어 보겠다"로 끝난다.' },
+  { id: 'r_ring', name: '녹슨 결혼반지', icon: '💍', area: 'outskirts', rarity: 'epic', desc: '안쪽에 두 사람의 이름이 새겨져 있다.' },
+  { id: 'r_basket', name: '찌그러진 장바구니', icon: '🧺', area: 'market', rarity: 'common', desc: '마지막 손님이 담다 만 물건이 그대로 남아 있었다.' },
+  { id: 'r_can', name: '유통기한 없는 통조림', icon: '🥫', area: 'market', rarity: 'common', desc: '라벨이 지워져 안에 뭐가 들었는지 아무도 모른다.' },
+  { id: 'r_radio', name: '트랜지스터 라디오', icon: '📻', area: 'market', rarity: 'rare', desc: '잡음 사이로 가끔 사람 목소리가 섞여 들린다.' },
+  { id: 'r_weight', name: '황동 저울추', icon: '⚖️', area: 'market', rarity: 'rare', desc: '시장 상인이 평생 쓰던 추. 닳은 곳이 반질반질하다.' },
+  { id: 'r_goldkey', name: '금고 열쇠', icon: '🗝️', area: 'market', rarity: 'legend', desc: '맞는 금고는 아직 찾지 못했다. 어쩌면 영영.' },
+  { id: 'r_stetho', name: '낡은 청진기', icon: '🩺', area: 'hospital', rarity: 'common', desc: '고무관이 삭았지만 소리는 여전히 전해진다.' },
+  { id: 'r_chart', name: '환자 차트', icon: '📋', area: 'hospital', rarity: 'common', desc: '마지막 기록은 "경과 관찰 중"이다.' },
+  { id: 'r_xray', name: '엑스레이 필름', icon: '🩻', area: 'hospital', rarity: 'rare', desc: '빛에 비추면 흉곽 안쪽에 무언가 선명하게 찍혀 있다.' },
+  { id: 'r_vial', name: '미개봉 항생제 앰플', icon: '💉', area: 'hospital', rarity: 'epic', desc: '냉장 보관이 끊긴 지 오래지만 봉인은 멀쩡하다.' },
+  { id: 'r_vaccine', name: '백신 시제품', icon: '🧪', area: 'hospital', rarity: 'legend', desc: '"실패작"이라 적힌 상자 속에서 이것만 따로 포장돼 있었다.' },
+  { id: 'r_bolt', name: '거대한 육각볼트', icon: '🔩', area: 'factory', rarity: 'common', desc: '주먹만 한 볼트. 어디에 쓰던 기계인지 짐작도 안 간다.' },
+  { id: 'r_hardhat', name: '노란 안전모', icon: '⛑️', area: 'factory', rarity: 'common', desc: '안쪽에 "김반장"이라고 매직으로 적혀 있다.' },
+  { id: 'r_gear', name: '정밀 기어', icon: '⚙️', area: 'factory', rarity: 'rare', desc: '이가 하나도 닳지 않았다. 새것이다.' },
+  { id: 'r_torch', name: '산소 용접 토치', icon: '🔥', area: 'factory', rarity: 'epic', desc: '불꽃 색이 아직 파랗다. 쓰던 사람의 손때가 깊다.' },
+  { id: 'r_core', name: '소형 반응로 코어', icon: '☢️', area: 'factory', rarity: 'legend', desc: '손바닥만 한데 아직 따뜻하다. 만지지 않는 편이 좋다.' },
+  { id: 'r_dogtag', name: '군번줄', icon: '🏷️', area: 'checkpoint', rarity: 'common', desc: '두 줄 중 한 줄만 남았다.' },
+  { id: 'r_map', name: '작전 지도', icon: '🗺️', area: 'checkpoint', rarity: 'rare', desc: '붉은 선이 도시 밖으로 이어지다 중간에 끊긴다.' },
+  { id: 'r_nv', name: '야간 투시경', icon: '🥽', area: 'checkpoint', rarity: 'rare', desc: '배터리는 죽었지만 렌즈는 깨끗하다.' },
+  { id: 'r_flag', name: '찢어진 부대기', icon: '🚩', area: 'checkpoint', rarity: 'epic', desc: '끝까지 이 자리를 지킨 부대의 깃발.' },
+  { id: 'r_orders', name: '마지막 작전 명령서', icon: '📜', area: 'checkpoint', rarity: 'legend', desc: '"전 인원 철수. 단, 지하는 닫지 말 것." — 서명은 지워져 있다.' },
+];
+
+/** 원정 한 번에 유물이 나올 기본 확률 (위험한 지역일수록 약간 오른다) */
+export const relicChance = (danger: number): number => 0.05 + danger / 1000;

@@ -172,6 +172,8 @@ export interface Game {
   policy: RationPolicy;
   expeditions: Expedition[];
   cleared: Record<string, number>;
+  /** 유물 도감: 붕괴해도 남는다. id → 처음 찾은 날, 찾은 횟수 */
+  codex: Record<string, { first: number; count: number }>;
   pending: Pending | null;
   story: StoryState;
   /** 특수 세럼을 구하러 간 생존자 */

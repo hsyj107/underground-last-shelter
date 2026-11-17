@@ -1,5 +1,6 @@
 import {
-  AREAS, DAY_MS, YEAR_DAYS, FACILITY_DEFS, MAX_FACILITY_LEVEL, RATION_BASE, RECRUIT_NAMED, STARTING_NAMED, TITLES,
+  AREAS, DAY_MS, YEAR_DAYS, FACILITY_DEFS, MAX_FACILITY_LEVEL, RARITY_BONUS, RARITY_LABEL, RARITY_WEIGHT, RATION_BASE,
+  RECRUIT_NAMED, RELICS, STARTING_NAMED, TITLES, relicChance,
   fromSeed, makeNormal, upgradeCost, xpToNext, type AreaDef, type FacilityDef,
 } from './data';
 import {
@@ -52,6 +53,7 @@ export function newGame(
     policy: 'equal',
     expeditions: [],
     cleared: {},
+    codex: {},
     pending: null,
     story: { next: 4, recent: [] },
     serum: null,
@@ -658,6 +660,26 @@ export function endDay(g: Game, rng: Rng = Math.random): DayResult {
 
 // ───────── 원정 결과 ─────────
 
+/** 아주 낮은 확률로 유물을 얻는다. 처음 얻으면 도감에 등록되고 고철을 받는다. */
+export function rollRelic(g: Game, area: AreaDef, rng: Rng, say: (k: LogKind, t: string) => void): void {
+  if (rng() >= relicChance(area.danger)) return;
+  const pool = RELICS.filter((r) => r.area === area.id);
+  const total = pool.reduce((n, r) => n + RARITY_WEIGHT[r.rarity], 0);
+  let pick = rng() * total;
+  const relic = pool.find((r) => (pick -= RARITY_WEIGHT[r.rarity]) < 0) ?? pool[0];
+  const have = g.codex[relic.id];
+  if (have) {
+    have.count += 1;
+    g.stock.scrap += 10;
+    say('info', `[유물 재발견] ${relic.name} (${RARITY_LABEL[relic.rarity]}) — 이미 도감에 있다. 고철 +10`);
+    return;
+  }
+  g.codex[relic.id] = { first: g.day, count: 1 };
+  const bonus = RARITY_BONUS[relic.rarity];
+  g.stock.scrap += bonus;
+  say(relic.rarity === 'common' ? 'good' : 'warn', `[유물 발견] ${relic.name} (${RARITY_LABEL[relic.rarity]}) — 도감 등록. 고철 +${bonus}`);
+}
+
 function resolveExpedition(
   g: Game, areaId: string, memberIds: string[], rng: Rng,
   say: (k: LogKind, t: string) => void, kill: (s: Survivor, cause: string) => void,
@@ -701,6 +723,7 @@ function resolveExpedition(
     }
   }
   g.commander.xp += Math.round(10 + area.danger / 5);
+  if (back.length > 0) rollRelic(g, area, rng, say);
   g.cleared[area.id] = (g.cleared[area.id] ?? 0) + 1;
 
   const head = `[원정 귀환] ${area.name}`;

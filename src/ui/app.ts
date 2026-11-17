@@ -1,5 +1,5 @@
 import {
-  AREAS, BACKGROUNDS, FACILITY_DEFS, JOB_FIT, JOB_LABEL, MAX_FACILITY_LEVEL, POLICIES, TITLES, allNamed, upgradeCost, xpToNext, type FacilityDef,
+  AREAS, BACKGROUNDS, FACILITY_DEFS, JOB_LABEL, MAX_FACILITY_LEVEL, POLICIES, RARITY_LABEL, RELICS, TITLES, upgradeCost, xpToNext, type FacilityDef,
 } from '../sim/data';
 import {
   assign, atBunker, byId, capacity, craftProsthetic, dangerLabel, endDay, facilityState, forecast, newGame, resLabel,
@@ -14,7 +14,7 @@ import { DAY_MS, msToNextDay, tick } from '../sim/clock';
 import { loadGame, saveGame } from '../sim/save';
 import { layoutActors, syncActors, tickActors } from './actors';
 import { avatarHtml, figureHtml, loadParts } from './figures';
-import { RES_KEYS, type BodyPart, type Job, type Exception, type FacilityId, type Game, type LogEntry, type Survivor } from '../sim/types';
+import { RES_KEYS, type BodyPart, type Exception, type FacilityId, type Game, type LogEntry, type Survivor } from '../sim/types';
 
 /**
  * 단말기 화면. 상태는 sim/ 의 game 하나뿐이고, 화면은 그 상태를 그릴 뿐이다.
@@ -377,55 +377,35 @@ function viewRec(g: Game): string {
 
 // ───────── 도감 / 시스템 ─────────
 
-const CODEX_JOBS: Job[] = ['engineer', 'mechanic', 'medic', 'farmer', 'guard', 'scout', 'caretaker', 'researcher', 'laborer'];
-
-/** 이 정착지에서 한 번이라도 만난 이름 있는 생존자: id → 현재 상태 글 */
-function metNamed(g: Game): Map<string, string> {
-  const out = new Map<string, string>();
-  const named = allNamed();
-  for (const o of g.obituaries) {
-    const seed = named.find((n) => n.name === o.name);
-    if (seed) out.set(seed.id, o.memorial ? `전몰 (DAY ${o.day}, ${o.cause}) · 기억함` : `전몰 (DAY ${o.day}, ${o.cause})`);
-  }
-  for (const s of g.survivors) {
-    if (!s.named) continue;
-    out.set(s.id, s.status === 'dead' ? '전몰' : s.status === 'away' ? '원정 중' : '정착지에서 생활 중');
-  }
-  return out;
-}
-
 function viewCodex(g: Game): string {
-  const met = metNamed(g);
-  const named = allNamed();
-  const rows = CODEX_JOBS.map((job) => {
-    const mine = named.filter((n) => n.job === job);
-    const slots = mine.map((n) => met.has(n.id)
-      ? `<div class="slot" data-act="codex" data-arg="${n.id}">${avatarHtml(n)}<span>${esc(n.name)}</span></div>`
-      : `<div class="slot locked" data-act="codex" data-arg="${n.id}"><div class="ava lock">?</div><span>잠김</span></div>`).join('');
-    const fill = Array.from({ length: Math.max(0, 3 - mine.length) }, () => '<div class="slot locked"><div class="ava lock">?</div><span>잠김</span></div>').join('');
-    const normals = g.survivors.filter((s) => !s.named && s.status !== 'dead' && s.job === job).length;
-    return `<div class="crow"><div class="jobtag">${JOB_LABEL[job]}${normals ? `<small>일반 ${normals}명</small>` : ''}</div><div class="slots">${slots}${fill}</div></div>`;
+  const got = RELICS.filter((r) => g.codex[r.id]).length;
+  const areas = AREAS.map((a) => {
+    const list = RELICS.filter((r) => r.area === a.id);
+    const n = list.filter((r) => g.codex[r.id]).length;
+    const slots = list.map((r) => g.codex[r.id]
+      ? `<div class="slot ${r.rarity}" data-act="codex" data-arg="${r.id}"><div class="relic ${r.rarity}">${r.icon}</div><span>${esc(r.name)}</span></div>`
+      : `<div class="slot locked" data-act="codex" data-arg="${r.id}"><div class="relic lock">?</div><span>미발견</span></div>`).join('');
+    return `<div class="crow col"><div class="jobtag wide">${esc(a.name)}<small>${n} / ${list.length}</small></div><div class="slots">${slots}</div></div>`;
   }).join('');
-  return `<div class="codexhead"><b>생존자 도감</b><span>수집 ${met.size} / ${named.length}</span></div>
-    <p class="note">이름 있는 생존자는 원정과 사건에서 만날 수 있습니다. 눌러서 사연과 특기를 봅니다.</p>${rows}`;
+  return `<div class="codexhead"><b>유물 도감</b><span>수집 ${got} / ${RELICS.length}</span></div>
+    <p class="note">원정에서 아주 낮은 확률로 발견됩니다. 위험한 지역일수록 조금 더 잘 나옵니다. 도감은 정착지가 무너져도 남습니다.</p>${areas}`;
 }
 
 function codexSheet(g: Game, id: string): string {
-  const seed = allNamed().find((n) => n.id === id);
-  if (!seed) return '';
-  const state = metNamed(g).get(id);
-  if (!state) {
-    return `<div class="card on"><div class="detail"><div class="ava lock big">?</div><div><div class="title">???</div>
-      <div class="sub">${JOB_LABEL[seed.job]}</div><p class="note">아직 만나지 못한 생존자입니다. 원정을 보내면 어딘가에서 만날지도 모릅니다.</p></div></div></div>`;
+  const r = RELICS.find((x) => x.id === id);
+  if (!r) return '';
+  const rec = g.codex[id];
+  const area = AREAS.find((a) => a.id === r.area);
+  if (!rec) {
+    return `<div class="card on"><div class="detail"><div class="relic lock big">?</div><div><div class="title">???</div>
+      <div class="sub">${esc(area?.name ?? '')}에서 발견할 수 있음</div>
+      <p class="note">아직 발견하지 못했습니다. 원정을 보내면 아주 낮은 확률로 나옵니다.</p></div></div></div>`;
   }
-  const fit = JOB_FIT[seed.job].flat().map((f) => FACILITY_DEFS.find((d) => d.id === f)?.name).filter(Boolean);
-  const best = JOB_FIT[seed.job][0].map((f) => FACILITY_DEFS.find((d) => d.id === f)?.name).join('·');
-  return `<div class="card on"><div class="detail">${figureHtml(seed, '150px')}<div>
-    <div class="title">${esc(seed.name)}<span class="tag named">네임드</span></div>
-    <div class="sub">${JOB_LABEL[seed.job]} · ${'★'.repeat(seed.skill)}${'☆'.repeat(5 - seed.skill)}</div>
-    <div class="sub">${esc(seed.trait)}</div><div class="sub ${state.startsWith('전몰') ? 'bad' : 'good'}">${esc(state)}</div></div></div>
-    <div class="sub" style="margin-top:8px">사연</div><p class="note quote">${esc(seed.story ?? '')}</p>
-    <div class="sub">특기</div><p class="note">가장 잘 맞는 시설: ${esc(best)} · 그 밖에 ${esc(fit.slice(1).join(', '))}</p></div>`;
+  return `<div class="card on"><div class="detail"><div class="relic ${r.rarity} big">${r.icon}</div><div>
+    <div class="title">${esc(r.name)}<span class="tag r-${r.rarity}">${RARITY_LABEL[r.rarity]}</span></div>
+    <div class="sub">${esc(area?.name ?? '')}</div>
+    <div class="sub good">DAY ${rec.first} 최초 발견 · ${rec.count}회 획득</div></div></div>
+    <p class="note quote">${esc(r.desc)}</p></div>`;
 }
 
 function viewSys(g: Game): string {

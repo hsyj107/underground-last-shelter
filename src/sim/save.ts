@@ -17,7 +17,9 @@ export function loadGame(): Game | null {
     const raw = window.localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const g = JSON.parse(raw) as Game;
-    return g.version === 5 ? g : null;
+    if (g.version !== 5) return null;
+    g.codex ??= {};
+    return g;
   } catch {
     return null;
   }
