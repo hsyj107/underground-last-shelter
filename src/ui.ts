@@ -58,6 +58,8 @@ import {
   offlineCapMs,
   previewExpedition,
   recruit,
+  rejectVisitor,
+  EAT,
   saveState,
   relatives,
   sellItem,
@@ -677,9 +679,12 @@ function openVisitor(): void {
     `<div class="vis">${pt(id, 'pt lg')}</div>
     <h2>${d.name} <small>${d.title}</small></h2>
     <p class="story">${d.intro}</p>
+    <p class="statline">${(Object.keys(STAT_NAME) as (keyof typeof STAT_NAME)[]).map((k) => `<span>${STAT_NAME[k]} <b>${d.stats[k]}</b></span>`).join('')}</p>
     <p class="buffline">✨ ${d.buff.text}</p>
+    <p class="dim sm">한 명 늘 때마다 분당 식량 ${fmt2(EAT.food)} · 식수 ${fmt2(EAT.water)}씩 더 먹어요. 지금 ${heads(S)}명이 지내고 있어요.</p>
     <button class="btn primary wide" data-act="recruit" data-id="${id}">들어오세요</button>
-    <button class="btn wide" data-act="close">조금만 더 기다려 주세요</button>`,
+    <button class="btn wide" data-act="close">조금만 더 기다려 주세요</button>
+    <button class="btn danger wide" data-act="reject">미안하지만 받아 줄 수 없어요</button>`,
   );
 }
 
@@ -955,6 +960,17 @@ function onClick(e: Event): void {
       closeModal();
       toast('모두 굶고 버티기로 했다. 눈치가 싸늘하다.', 'bad');
       break;
+    case 'reject': {
+      const vid = S.visitor;
+      const nm = vid ? SURV_BY_ID[vid]?.name : '';
+      if (rejectVisitor(S, now)) {
+        saveState(S);
+        closeModal();
+        renderAll();
+        toast(`${nm ? josa(nm, 'eulreul') + ' ' : ''}돌려보냈다. 문이 닫혔다…`, 'bad');
+      }
+      break;
+    }
     case 'recruit':
       if (recruit(S, id, now)) {
         saveState(S);

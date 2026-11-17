@@ -490,6 +490,16 @@ export function recruit(s: State, id: string, now: number): boolean {
   return true;
 }
 
+/** 문 앞의 방문자를 돌려보낸다. 다시 만날 수는 있지만 같은 사람은 아니다. */
+export function rejectVisitor(s: State, now: number): boolean {
+  const id = s.visitor;
+  if (!id) return false;
+  delete s.people[id];
+  s.visitor = null;
+  s.nextVisit = now + Math.round(ms(30000) / (1 + 0.15 * s.upg.radio));
+  return true;
+}
+
 // ---------- 탐사 ----------
 
 export function expeditionMs(s: State, zone: ZoneDef): number {

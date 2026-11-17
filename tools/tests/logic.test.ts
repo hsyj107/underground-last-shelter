@@ -617,3 +617,20 @@ test('플레이어 직업도 구역 지식이 된다 (의료인→병원, 사무
   assert.deepEqual(g.previewExpedition(s, 'office', ['me'], 0).experts, ['me']);
   assert.deepEqual(g.previewExpedition(s, 'hospital', ['me'], 0).experts, []);
 });
+
+test('방문자를 돌려보낼 수 있다: 문 앞이 비고 잠시 뒤 다른 사람이 온다', () => {
+  g.setRng(Math.random);
+  const s = g.newState('a', 0);
+  g.tick(s, 25_000);
+  const id = s.visitor!;
+  assert.ok(id);
+  assert.ok(g.rejectVisitor(s, 25_000));
+  assert.equal(s.visitor, null);
+  assert.equal(s.people[id], undefined);
+  assert.equal(s.crew.length, 0);
+  assert.ok(!g.rejectVisitor(s, 25_001)); // 이미 없다
+  assert.deepEqual(g.tick(s, 25_500), []); // 바로 오지 않는다
+  const ev = g.tick(s, 60_000);
+  assert.equal(ev.length, 1);
+  assert.notEqual(s.visitor, id);
+});
