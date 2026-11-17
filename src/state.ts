@@ -7,6 +7,8 @@ import {
   GIVEN_M,
   NO_SKIRT,
   CAP_CHANCE,
+  TIER,
+  tierOf,
   PROF_FEMALE,
   ITEMS,
   JOB_BY_ID,
@@ -478,7 +480,7 @@ export function pickVisitor(s: State): ProfDef | null {
   const cands = PROFS.filter((d) => !here.has(d.id) && unlockMet(s, d.unlock));
   if (!cands.length) return null;
   const weights = cands.map((d) => {
-    let w = 1;
+    let w = TIER[tierOf(d.id)].weight; // 전문직일수록 드물게 온다
     if (d.buff.kind === 'prod_food' && s.res.food < 30) w *= 3;
     if (d.buff.kind === 'prod_water' && s.res.water < 30) w *= 3;
     if (d.buff.kind === 'med_yield' && s.res.med < 10) w *= 2.5;

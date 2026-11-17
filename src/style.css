@@ -284,3 +284,5 @@ p.ok { color: var(--good); } p.warn { color: var(--warm); }
 p.bad { color: var(--bad); }
 .gd { font-style: normal; font-weight: bold; margin-right: 3px; }
 .gd-m { color: #6ab0f0; } .gd-f { color: #f08ab0; }
+.tier { text-align: center; font-size: 12px; font-weight: bold; margin: 2px 0 6px; }
+.tier-skilled { color: #8ac0e8; } .tier-expert { color: #f0c860; }

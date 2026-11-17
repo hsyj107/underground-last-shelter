@@ -20,6 +20,8 @@ import {
   SURV_BY_ID,
   UPGRADES,
   FLOORS,
+  TIER,
+  tierOf,
   ZONES,
   KNOW_NAME,
   ZONE_BY_ID,
@@ -729,6 +731,7 @@ function openVisitor(): void {
     `<div class="vis">${pt(id, 'pt lg')}</div>
     <h2>${gm(id)}${d.name} <small>${gname(id)} · ${d.title}</small></h2>
     <p class="story">${d.intro}</p>
+    ${TIER[tierOf(d.prof)].label ? `<p class="tier tier-${tierOf(d.prof)}">⭐ ${TIER[tierOf(d.prof)].label}</p>` : ''}
     <p class="statline">${(Object.keys(STAT_NAME) as (keyof typeof STAT_NAME)[]).map((k) => `<span>${STAT_NAME[k]} <b>${d.stats[k]}</b></span>`).join('')}</p>
     <p class="buffline">✨ ${d.buff.text}</p>
     <p class="dim sm">한 명 늘 때마다 분당 식량 ${fmt2(EAT.food)} · 식수 ${fmt2(EAT.water)}씩 더 먹어요. 지금 ${heads(S)}명이 지내고 있어요.</p>

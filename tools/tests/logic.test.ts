@@ -789,3 +789,22 @@ test('모자: 작업 모자는 직업마다 정해진 확률로만 쓴다 (경�
   }
   assert.ok(hats / total < 0.15, `모자 비율 ${(hats / total).toFixed(2)}`);
 });
+
+test('전문직은 드물게 온다: 의사·연구원은 농부·택배기사보다 훨씬 덜 찾아온다', () => {
+  g.setRng(Math.random);
+  const count: Record<string, number> = {};
+  for (let i = 0; i < 3000; i++) {
+    const s = g.newState('a', 0);
+    s.res.food = 100; s.res.water = 100; s.res.med = 40; // 필요 가중치가 끼어들지 않게
+    for (const id of ['f_tuna', 'f_peach', 'f_beans', 'f_spam', 'f_ramen', 'f_snack', 'm_band', 'm_pain', 'm_kit', 'm_disinf', 'm_anti', 'm_vita', 'p_food', 't_radio', 'c_comic', 'c_mag', 'c_board']) s.found[id] = 1;
+    s.stats.expeditions = 5;
+    s.crew = [];
+    const p = g.pickVisitor(s)!;
+    count[p.id] = (count[p.id] ?? 0) + 1;
+  }
+  const avg = (ids: string[]): number => ids.reduce((a, id) => a + (count[id] ?? 0), 0) / ids.length;
+  const expert = avg(['doctor', 'researcher', 'soldier']);
+  const common = avg(['farmer', 'courier', 'cleaner', 'student']);
+  assert.ok(expert * 3 < common, `전문직 ${expert} vs 흔한 직업 ${common}`);
+  assert.ok(avg(['nurse', 'pharmacist']) < common * 0.8);
+});

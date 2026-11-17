@@ -617,6 +617,23 @@ export const PROF_FEMALE: Record<string, number> = {
   nurse: 0.85, teacher: 0.7, pharmacist: 0.6, baker: 0.6, oldlady: 1, bartender: 0.5,
   soldier: 0.2, firefighter: 0.15, police: 0.3, mechanic: 0.15, electrician: 0.15, plumber: 0.1, trucker: 0.1, rider: 0.3, doctor: 0.45,
 };
+/**
+ * 직업의 희소성. 전문직일수록 방문 확률이 낮다.
+ * common: 흔한 직업 / skilled: 전문 기술 / expert: 전문직(드묾)
+ */
+export type Tier = 'common' | 'skilled' | 'expert';
+export const TIER: Record<Tier, { weight: number; label: string }> = {
+  common: { weight: 1, label: '' },
+  skilled: { weight: 0.5, label: '전문 기술' },
+  expert: { weight: 0.2, label: '전문직 · 드문 손님' },
+};
+export const PROF_TIER: Record<string, Tier> = {
+  doctor: 'expert', researcher: 'expert', soldier: 'expert',
+  nurse: 'skilled', pharmacist: 'skilled', vet: 'skilled', paramedic: 'skilled', dev: 'skilled',
+  firefighter: 'skilled', police: 'skilled', electrician: 'skilled', teacher: 'skilled',
+};
+export const tierOf = (profId: string): Tier => PROF_TIER[profId] ?? 'common';
+
 /** 작업 모자를 쓰는 직업이 실제로 모자를 쓸 확률 (나머지는 기본 0.25). 다들 모자를 쓰면 구분이 안 된다 */
 export const CAP_CHANCE: Record<string, number> = { police: 1, firefighter: 0.7, courier: 0.5 };
 
