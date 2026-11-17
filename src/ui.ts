@@ -681,7 +681,9 @@ function ccLook(): Look {
     top2: '#ff9a3c',
     pants: '#3a3a4a',
     shoes: '#2a2a2a',
-    acc: [...o.acc, ...cc.acc.filter((a) => !o.acc.includes(a))],
+    f: cc.gender === 'f',
+    skirt: cc.gender === 'f',
+    acc: [...o.acc, ...cc.acc.filter((a) => !o.acc.includes(a))].filter((a) => !(cc.gender === 'f' && a === 'beard')),
   };
 }
 
@@ -753,7 +755,7 @@ function renderCreate(): void {
       <div class="cc-row"><b>머리색</b>${sw('cc-hair', LOOK_OPTS.hairs, cc.hair)}</div>
       <div class="cc-row"><b>머리</b>${LOOK_OPTS.styles.map((st) => `<button class="chip sm ${cc.style === st.id ? 'on' : ''}" data-act="cc-style" data-id="${st.id}">${st.name}</button>`).join('')}</div>
       <div class="cc-row"><b>옷</b>${sw('cc-top', LOOK_OPTS.tops, cc.top)}</div>
-      <div class="cc-row"><b>특징</b>${LOOK_OPTS.accs.map((a) => `<button class="chip sm ${cc.acc.includes(a.id) ? 'on' : ''}" data-act="cc-acc" data-id="${a.id}">${a.name}</button>`).join('')}</div>`;
+      <div class="cc-row"><b>특징</b>${LOOK_OPTS.accs.filter((a) => !(cc.gender === 'f' && a.id === 'beard')).map((a) => `<button class="chip sm ${cc.acc.includes(a.id) ? 'on' : ''}" data-act="cc-acc" data-id="${a.id}">${a.name}</button>`).join('')}</div>`;
   } else {
     if (!cc.stats) cc.stats = rollStats(cc.origin, cc.job);
     const o = ORIGIN_BY_ID[cc.origin];
@@ -1036,7 +1038,10 @@ function onClick(e: Event): void {
     case 'cc-gender':
       readName();
       cc.gender = id as Gender;
-      if (id === 'f') cc.style = 'long';
+      if (id === 'f') {
+        cc.style = 'long';
+        cc.acc = cc.acc.filter((a) => a !== 'beard');
+      }
       else if (id === 'm') cc.style = 'short';
       if (NAME_POOL.m.concat(NAME_POOL.f).includes(cc.name)) cc.name = pick(NAME_POOL[cc.gender]);
       renderCreate();
