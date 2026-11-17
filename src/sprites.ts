@@ -294,8 +294,16 @@ function buildPerson(look: Look, f: number, moving: boolean, sil: boolean): HTML
   rect(13, 10 + hb, 2, 1, '#f08a7a');
   rect(8, 11 + hb, 2, 1, look.f ? '#d8506a' : '#a04a3a');
   if (look.f) {
-    rect(4, 7 + hb, 2, 1, '#2a1a14');
-    rect(12, 7 + hb, 2, 1, '#2a1a14');
+    // 속눈썹: 눈 바깥쪽 끝에서 위로 살짝 치켜 올린다. 입술은 장밋빛.
+    rect(3, 7 + hb, 3, 1, '#2a1a14');
+    rect(12, 7 + hb, 3, 1, '#2a1a14');
+    rect(3, 8 + hb, 1, 1, '#2a1a14');
+    rect(14, 8 + hb, 1, 1, '#2a1a14');
+    if (!hatted && look.style !== 'bald') {
+      // 앞머리: 이마 한쪽을 비스듬히 덮는다
+      rect(2, 5 + hb, 7, 2, hair);
+      rect(2, 5 + hb, 6, 1, shadeHex(hair, 1.15));
+    }
     if ((look.style === 'long' || look.style === 'bun') && !hatted) {
       rect(13, 1 + hb, 3, 3, '#e86a9a');
       rect(13, 1 + hb, 1, 1, '#ffb0cc');
