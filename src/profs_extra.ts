@@ -103,7 +103,7 @@ export const EXTRA_PROFS: ProfDef[] = [
   },
   {
     id: 'pharmacist', title: '동네 약국 약사',
-    look: L('#8fcfb0', '#f4efe4', '#4a5a6a', '#f4efe4', ['glasses'], 'bun'), range: R([1, 3], [2, 5], [6, 9], [3, 6]), names: 'person',
+    look: L('#8fcfb0', '#f4efe4', '#4a5a6a', '#f4efe4', ['glasses', 'labcoat'], 'bun'), range: R([1, 3], [2, 5], [6, 9], [3, 6]), names: 'person',
     buff: { kind: 'med_yield', value: 0.5, text: '벙커에 있으면 탐사에서 얻는 의약품 +50%' },
     likes: { items: ['m_pain', 'm_vita'], cat: 'medical' }, unlock: { type: 'start' }, hint: '',
     intro: '"약은 이름이 중요해요. 모르는 건 먹지 마세요. 먼저 저한테 보여 주세요."',
@@ -113,7 +113,7 @@ export const EXTRA_PROFS: ProfDef[] = [
   },
   {
     id: 'vet', title: '동물병원 수의사',
-    look: L('#a8886a', '#88684a', '#3a4a5a', '#2a2a2a', ['glasses'], 'short'), range: R([2, 5], [3, 6], [5, 8], [3, 6]), names: 'person',
+    look: L('#a8886a', '#f4efe4', '#3a4a5a', '#2a2a2a', ['glasses', 'labcoat'], 'short'), range: R([2, 5], [3, 6], [5, 8], [3, 6]), names: 'person',
     buff: { kind: 'med_yield', value: 0.3, text: '벙커에 있으면 탐사에서 얻는 의약품 +30%' },
     likes: { items: ['p_can', 'p_churu'], cat: 'pet' }, unlock: { type: 'item', id: 'p_can' }, hint: '동물 용품을 발견하면 찾아온다.',
     intro: '"사람은 전공이 아닌데… 설명을 들을 수 있는 환자는 오히려 편하겠죠."',
@@ -133,7 +133,7 @@ export const EXTRA_PROFS: ProfDef[] = [
   },
   {
     id: 'doctor', title: '응급의학과 전문의',
-    look: L('#f4efe4', '#c8d8e0', '#2a3a4a', '#f4efe4', ['glasses'], 'short'), range: R([1, 4], [2, 5], [8, 10], [3, 6]), names: 'person',
+    look: L('#78b8c8', '#f4efe4', '#2a3a4a', '#f4efe4', ['glasses', 'labcoat'], 'short'), range: R([1, 4], [2, 5], [8, 10], [3, 6]), names: 'person',
     buff: { kind: 'med_yield', value: 0.6, text: '벙커에 있으면 탐사에서 얻는 의약품 +60%' },
     likes: { items: ['m_anti', 'f_coffee'], cat: 'medical' }, unlock: { type: 'cat', cat: 'medical', n: 4 }, hint: '의약품을 4종 발견하면 찾아온다.',
     intro: '"수술실은 없어졌지만 손은 아직 있습니다. 다친 사람 어디 있죠?"',
@@ -233,7 +233,7 @@ export const EXTRA_PROFS: ProfDef[] = [
   },
   {
     id: 'researcher', title: '정수 기술 연구원',
-    look: L('#b8c8dc', '#8aa0c0', '#3a3a52', '#2a2a3a', ['glasses'], 'short'), range: R([1, 3], [3, 6], [4, 6], [2, 5]), names: 'person',
+    look: L('#b8c8dc', '#f4efe4', '#3a3a52', '#2a2a3a', ['glasses', 'labcoat'], 'short'), range: R([1, 3], [3, 6], [4, 6], [2, 5]), names: 'person',
     buff: { kind: 'prod_water', value: 0.3, text: '벙커에 있으면 정수·식수 생산 +30%' },
     likes: { items: ['t_laptop', 'm_disinf'], cat: 'tech' }, unlock: { type: 'found', n: 8 }, hint: '도감을 8종 채우면 찾아온다.',
     intro: '"여과 효율을 계산해 봤는데… 이 벙커, 생각보다 구조가 괜찮아요."',

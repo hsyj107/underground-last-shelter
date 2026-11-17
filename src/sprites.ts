@@ -253,11 +253,14 @@ export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, o: Pose
         rect(9, 5 + hb, 1, 2, look.hair);
         rect(4, 6 + hb, 4, 1, look.hair);
         break;
-      case 'cross':
-        // 흰 바탕에 1칸 두께의 빨간 십자
-        rect(3, 8 + bob, 5, 4, '#f4efe4');
-        rect(5, 8 + bob, 1, 4, '#d83a3a');
-        rect(3, 9 + bob, 5, 1, '#d83a3a');
+      case 'labcoat':
+        // 흰 가운: 앞이 트여 속옷이 가운데로 보이고, 허리 아래까지 내려온다
+        rect(3, 7 + bob, 2, bodyH + 2 - bob, '#f4efe4');
+        rect(7, 7 + bob, 2, bodyH + 2 - bob, '#f4efe4');
+        rect(3, 7 + bodyH + 1, 2, 1, '#d8d0c0');
+        rect(7, 7 + bodyH + 1, 2, 1, '#d8d0c0');
+        rect(2, 7 + bob, 1, bodyH - 1, '#f4efe4');
+        rect(9, 7 + bob, 1, bodyH - 1, '#f4efe4');
         break;
       case 'tie':
         rect(5, 7 + bob, 2, 1, '#f4efe4');
@@ -276,8 +279,8 @@ export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, o: Pose
         rect(10, 8, 2, 1, '#7a4a2a');
         break;
       case 'vest':
-        rect(3, 7 + bob, 2, bodyH - bob, '#ff9a3c');
-        rect(7, 7 + bob, 2, bodyH - bob, '#ff9a3c');
+        rect(3, 7 + bob, 2, bodyH - bob, '#f2c230');
+        rect(7, 7 + bob, 2, bodyH - bob, '#f2c230');
         rect(7, 8 + bob, 1, 1, '#ffffff');
         break;
       case 'cap':
