@@ -835,6 +835,36 @@ test('역할: 탐사조만 탐사를 나가고, 생산조는 생산을, 방어�
   assert.ok(g.availableCrew(s, 0).includes(a));
 });
 
+test('조 편성 유대: 같은 조는 친해지거나 다투고, 사이 나쁜 방어조 짝은 방어력이 깎인다', () => {
+  g.setRng(seq([0.0]));
+  const s = g.newState('a', 0, plain());
+  const a = join(s, 'soldier');
+  const b = join(s, 'police');
+  const c = join(s, 'farmer');
+  assert.ok(g.setRole(s, a, 'guard', 0));
+  assert.ok(g.setRole(s, b, 'guard', 0));
+  assert.ok(g.setRole(s, c, 'work', 0));
+  // 난수가 항상 0이면 같은 조 짝은 반드시 친구가 된다
+  const first = e.rollSquadBonds(s, 0);
+  assert.ok(first.some((x) => x.role === 'guard' && x.kind === 'friend'));
+  assert.equal(g.relOf(s, a, b), 'friend');
+  const withFriend = g.defense(s, 0);
+  // 사이가 틀어지면 방어력이 친구일 때보다 2.5 낮다 (+1.5 → -1)
+  s.rel[g.relKey(a, b)] = 'rival';
+  assert.ok(Math.abs(withFriend - g.defense(s, 0) - 2.5) < 0.11, '친구 +1.5, 앙숙 -1');
+  // 병든 사람·탐사 나간 사람은 조 유대에서 빠진다
+  s.sick[a] = { deadline: 1e12 };
+  const sq = e.squadsAtHome(s, 0);
+  assert.ok(!sq.guard.includes(a));
+  // 한 시간마다 한 번씩만 굴린다
+  g.setRng(seq([0.99]));
+  s.sick = {};
+  const n0 = Object.keys(s.rel).length;
+  const notes = e.tickEvents(s, s.nextBond - 1);
+  assert.ok(!notes.some((x) => x.type === 'squad_bond'));
+  assert.equal(Object.keys(s.rel).length, n0);
+});
+
 test('주인공(관리자)은 어떤 경우에도 죽지 않는다', () => {
   const s = g.newState('a', 0);
   s.found = Object.fromEntries(ITEMS.slice(0, 40).map((i) => [i.id, 1]));

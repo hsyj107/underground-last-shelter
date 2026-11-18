@@ -18,11 +18,13 @@ import {
   freeBeds,
   nextFloor,
   relatives,
+  relOf,
+  relKey,
   affinity,
   startExpedition,
   guideSteps,
 } from './state.ts';
-import type { State, StartResult } from './state.ts';
+import type { State, StartResult, Role } from './state.ts';
 
 const HOUR = 3600000;
 const RES_KEYS: ResKey[] = ['food', 'water', 'med'];
@@ -405,9 +407,112 @@ export type Notice =
   | { type: 'sick_death'; gone: Gone }
   | { type: 'rescue' }
   | { type: 'rescue_lost' }
+  | { type: 'squad_bond'; a: string; b: string; kind: 'friend' | 'rival' | 'mended'; role: Role | 'mix' }
   | { type: 'guide_done' };
 
 const later = (hours: number): number => ms((hours + 0) * HOUR);
+
+// ---------- 조 편성이 만드는 정 ----------
+
+/** 같은 조는 같은 일을 하며 가까워지거나 부딪히고, 다른 조 사이에는 불만이 쌓일 수 있다 */
+const BOND_MS = HOUR;
+const BOND_CATCHUP = 4;
+
+export interface SquadBond {
+  a: string;
+  b: string;
+  kind: 'friend' | 'rival' | 'mended';
+  role: Role | 'mix';
+}
+
+/** 벙커에 있고 멀쩡한 사람을 조별로 나눈다 (고양이는 제외) */
+export function squadsAtHome(s: State, now: number): Record<Role, string[]> {
+  const away = awaySet(s, now);
+  const out: Record<Role, string[]> = { scout: [], work: [], guard: [] };
+  for (const id of s.crew) {
+    if (away.has(id) || isSick(s, id) || s.people[id]?.look.cat) continue;
+    out[roleOf(s, id)].push(id);
+  }
+  return out;
+}
+
+function bondStress(s: State): boolean {
+  return s.shortMs > 0 || s.ration !== 'normal' || !!s.raid;
+}
+
+/** 한 쌍을 골라 사이를 굴린다. 이미 친구인 쌍은 그대로 둔다. */
+function rollPair(s: State, a: string, b: string, role: Role | 'mix'): SquadBond | null {
+  const cur = relOf(s, a, b);
+  if (cur === 'friend') return null;
+  const pa = s.people[a];
+  const pb = s.people[b];
+  const cha = Math.max(pa?.stats.cha ?? 3, pb?.stats.cha ?? 3);
+  const key = relKey(a, b);
+  if (cur === 'rival') {
+    // 한 지붕 아래 같은 일을 하다 보면 풀리기도 한다
+    if (rand() < (role === 'mix' ? 0.05 : 0.18 + 0.02 * cha)) {
+      delete s.rel[key];
+      return { a, b, kind: 'mended', role };
+    }
+    return null;
+  }
+  let pFriend: number;
+  let pRival: number;
+  if (role === 'mix') {
+    pFriend = 0.03 + 0.01 * cha;
+    pRival = 0.06 + (bondStress(s) ? 0.08 : 0);
+  } else if (role === 'guard') {
+    const strong = (pa?.stats.str ?? 0) >= 6 && (pb?.stats.str ?? 0) >= 6;
+    pFriend = 0.26 + 0.02 * cha;
+    pRival = 0.07 + (strong ? 0.08 : 0); // 센 사람끼리는 힘자랑이 붙는다
+  } else if (role === 'work') {
+    pFriend = 0.26 + 0.02 * cha;
+    pRival = 0.06 + (s.shortMs > 0 ? 0.08 : 0); // 먹을 게 모자라면 일 분담으로 다툰다
+  } else {
+    pFriend = 0.26 + 0.02 * cha;
+    pRival = 0.05;
+  }
+  const r = rand();
+  if (r < pFriend) {
+    s.rel[key] = 'friend';
+    return { a, b, kind: 'friend', role };
+  }
+  if (r < pFriend + pRival) {
+    s.rel[key] = 'rival';
+    return { a, b, kind: 'rival', role };
+  }
+  return null;
+}
+
+/** 한 번 굴릴 때마다 같은 조 한 쌍, 다른 조 한 쌍만 움직인다 */
+export function rollSquadBonds(s: State, now: number): SquadBond[] {
+  const sq = squadsAtHome(s, now);
+  const same: [string, string, Role][] = [];
+  for (const role of ['scout', 'work', 'guard'] as Role[]) {
+    const g = sq[role];
+    for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) same.push([g[i], g[j], role]);
+  }
+  const cross: [string, string][] = [];
+  const roles = ['scout', 'work', 'guard'] as Role[];
+  for (let x = 0; x < roles.length; x++) {
+    for (let y = x + 1; y < roles.length; y++) {
+      for (const a of sq[roles[x]]) for (const b of sq[roles[y]]) cross.push([a, b]);
+    }
+  }
+  const out: SquadBond[] = [];
+  if (same.length) {
+    const [a, b, role] = pick(same);
+    const r = rollPair(s, a, b, role);
+    if (r) out.push(r);
+  }
+  if (cross.length) {
+    const [a, b] = pick(cross);
+    const r = rollPair(s, a, b, 'mix');
+    if (r) out.push(r);
+  }
+  return out;
+}
+
 
 /** 사건이 생기거나 끝났는지 본다. tick 직후에 부르면 된다. */
 export function tickEvents(s: State, now: number): Notice[] {
@@ -428,6 +533,19 @@ export function tickEvents(s: State, now: number): Notice[] {
       s.res.med += 2;
       out.push({ type: 'guide_done' });
     }
+  }
+
+  // 조 편성이 만드는 정: 한 시간에 한 번씩, 쉬었다 와도 몇 번까지만 따라잡는다
+  if (now >= s.nextBond && s.crew.length >= 2) {
+    let n = 0;
+    while (now >= s.nextBond && n < BOND_CATCHUP) {
+      for (const b of rollSquadBonds(s, now)) out.push({ type: 'squad_bond', ...b });
+      s.nextBond += ms(BOND_MS);
+      n++;
+    }
+    if (now >= s.nextBond) s.nextBond = now + ms(BOND_MS);
+  } else if (now >= s.nextBond) {
+    s.nextBond = now + ms(BOND_MS);
   }
 
   // 습격

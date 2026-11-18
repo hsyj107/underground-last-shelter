@@ -165,6 +165,8 @@ export interface State {
   merchant: Merchant | null;
   nextMerchant: number;
   nextSick: number;
+  /** 같은 조·다른 조 사이의 정이 다음에 움직일 시각 */
+  nextBond: number;
   rescue: Rescue | null;
   nextRescue: number;
   /** 구출해 온 사람들 중 아직 문 앞에 세우지 못한 사람 */
@@ -269,6 +271,7 @@ export function newState(name: string, now: number, cr: Creation = defaultCreati
     merchant: null,
     nextMerchant: now + ms(3 * 3600000),
     nextSick: now + ms(8 * 3600000),
+    nextBond: now + ms(3600000),
     rescue: null,
     nextRescue: now + ms(10 * 3600000),
     rescued: [],
@@ -394,12 +397,22 @@ export const hasTrait = (s: State, id: string): boolean => s.player?.trait === i
 /** 생산조가 늘려 주는 생산 배율 (+) */
 export function workBoost(s: State): number {
   let v = 0;
+  const workers: string[] = [];
   for (const id of s.crew) {
     if (roleOf(s, id) !== 'work' || isSick(s, id)) continue;
     const d = SURV_BY_ID[id];
     if (d) v += 0.1 + 0.01 * (d.stats.str + d.stats.agi);
+    workers.push(id);
   }
-  return v;
+  // 손발이 맞는 짝은 일이 빠르고, 사이 나쁜 짝은 느려진다
+  for (let i = 0; i < workers.length; i++) {
+    for (let j = i + 1; j < workers.length; j++) {
+      const r = relOf(s, workers[i], workers[j]);
+      if (r === 'friend') v += 0.04;
+      else if (r === 'rival') v -= 0.04;
+    }
+  }
+  return Math.max(0, v);
 }
 /** 문을 지키는 힘. 방어조가 중심이고, 관리자도 벙커에 있으면 힘을 보탠다. */
 export function defense(s: State, now: number): number {
@@ -412,7 +425,14 @@ export function defense(s: State, now: number): number {
     guards.push(id);
     v += (d.stats.str + d.stats.agi * 0.5) * (d.know.includes('security') ? 1.3 : 1);
   }
-  for (let i = 0; i < guards.length; i++) for (let j = i + 1; j < guards.length; j++) if (relOf(s, guards[i], guards[j]) === 'friend') v += 1.5;
+  for (let i = 0; i < guards.length; i++) {
+    for (let j = i + 1; j < guards.length; j++) {
+      const r = relOf(s, guards[i], guards[j]);
+      if (r === 'friend') v += 1.5;
+      else if (r === 'rival') v -= 1; // 사이 나쁜 두 사람은 호흡이 안 맞는다
+    }
+  }
+  v = Math.max(0, v);
   if (!awaySet(s, now).has('me')) v += SURV_BY_ID.me.stats.str;
   return Math.round(v * (hasTrait(s, 'veteran') ? 1.2 : 1) * 10) / 10;
 }

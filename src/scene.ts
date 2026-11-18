@@ -38,6 +38,23 @@ function laneOf(floor: View, seed: number): number {
 function postLane(floor: View): number {
   return floor === 'b8' ? 98 : 147;
 }
+/** 대기실(B7) 방어조 운동 코너: 매트 위에서 각자 다른 운동을 한다 */
+const TRAIN_SPOTS: { x: number; lane: number; act: 'press' | 'curl' | 'bag'; face: 1 | -1 }[] = [
+  { x: 26, lane: 141, act: 'press', face: 1 },
+  { x: 72, lane: 146, act: 'bag', face: 1 },
+  { x: 42, lane: 147, act: 'curl', face: -1 },
+  { x: 56, lane: 141, act: 'press', face: 1 },
+  { x: 18, lane: 148, act: 'curl', face: -1 },
+];
+const BAG_X = 87;
+/** 대기실 탐사조 장비 손질 코너: 방수포 둘레에 둘러앉아 각자 장비를 만진다 */
+const GEAR_SPOTS: { x: number; lane: number; act: 'sharpen' | 'polish' | 'pack' | 'map' | 'check'; face: 1 | -1 }[] = [
+  { x: 114, lane: 142, act: 'sharpen', face: 1 },
+  { x: 150, lane: 148, act: 'polish', face: -1 },
+  { x: 126, lane: 148, act: 'pack', face: 1 },
+  { x: 142, lane: 142, act: 'map', face: -1 },
+  { x: 132, lane: 137, act: 'check', face: 1 },
+];
 
 export interface SceneModel {
   items: Record<string, number>;
@@ -78,7 +95,7 @@ interface Walker {
   /** 지금 있는 층: 생산조는 지하 8층 생산실에서 일한다 */
   floor: View;
   /** 맡은 자리가 있으면 거기서 움직이지 않는다 */
-  post: { x: number; face: 1 | -1; kind: 'guard' | 'work' } | null;
+  post: { x: number; face: 1 | -1; kind: 'guard' | 'work' | 'train' | 'gear'; lane?: number; act?: string } | null;
 }
 
 interface Zom {
@@ -163,6 +180,7 @@ export class Scene {
   private flicker = 1;
   private nextFlicker = 2;
   private workT = 0;
+  private gymT = 0;
   private rand = seeded(42);
 
   constructor(
@@ -287,10 +305,17 @@ export class Scene {
     }
     for (const id of [...this.walkers.keys()]) if (!present.has(id)) this.walkers.delete(id);
     const ok = (id: string): boolean => !m.sick.includes(id);
+    const isCat = (id: string): boolean => !!SURV_BY_ID[id]?.look.cat;
     const guards = m.present.filter((id) => m.roles[id] === 'guard' && ok(id));
     const workers = m.present.filter((id) => m.roles[id] === 'work' && ok(id));
+    /** 습격 중이 아니면 방어조는 운동 코너에서 몸을 만든다 */
+    const trainers = m.alert ? [] : guards.filter((id) => !isCat(id));
+    /** 쉬고 있는 탐사조는 장비 손질 코너에 모인다 (관리자는 가게를 돌아다닌다) */
+    const gearers = m.present.filter((id) => id !== 'me' && (m.roles[id] ?? 'scout') === 'scout' && ok(id) && !isCat(id));
     for (const w of this.walkers.values()) {
-      const gi = guards.indexOf(w.id);
+      const gi = m.alert ? guards.indexOf(w.id) : -1;
+      const ti = trainers.indexOf(w.id);
+      const si = gearers.indexOf(w.id);
       const wi = workers.indexOf(w.id);
       const want: View = wi >= 0 ? 'b8' : 'b7';
       if (w.floor !== want) {
@@ -301,7 +326,33 @@ export class Scene {
         w.pause = 0;
         w.moving = true;
       }
-      w.post = gi >= 0 ? { x: 30 + gi * 15, face: -1, kind: 'guard' } : wi >= 0 ? { x: WORK_POSTS[wi % 4], face: wi % 2 ? 1 : -1, kind: 'work' } : null;
+      if (gi >= 0) w.post = { x: 30 + gi * 15, face: -1, kind: 'guard' };
+      else if (ti >= 0) {
+        const sp = TRAIN_SPOTS[ti % TRAIN_SPOTS.length];
+        w.post = { x: sp.x + Math.floor(ti / TRAIN_SPOTS.length) * 6, face: sp.face, kind: 'train', lane: sp.lane, act: sp.act };
+      } else if (wi >= 0) w.post = { x: WORK_POSTS[wi % 4], face: wi % 2 ? 1 : -1, kind: 'work' };
+      else if (si >= 0) {
+        const sp = GEAR_SPOTS[si % GEAR_SPOTS.length];
+        w.post = { x: sp.x + Math.floor(si / GEAR_SPOTS.length) * 4, face: sp.face, kind: 'gear', lane: sp.lane, act: sp.act };
+      } else w.post = null;
+    }
+    // 운동 코너와 장비 코너의 땀방울·불꽃
+    this.gymT -= dt;
+    if (this.gymT <= 0) {
+      this.gymT = 0.35;
+      const at = [...this.walkers.values()].filter((w) => w.post && (w.post.kind === 'train' || w.post.kind === 'gear') && !w.moving && w.floor === 'b7');
+      if (at.length) {
+        const w = at[Math.floor(this.rand() * at.length)];
+        const fx = w.dir > 0 ? 1 : -1;
+        const act = w.post?.act;
+        const spark = (x: number, y: number, color: string, kind: Particle['kind'] = 'spark'): void => {
+          this.particles.push({ x, y, vx: (this.rand() - 0.5) * 8, vy: -6 - this.rand() * 5, life: 0, max: 0.5, kind, color, view: 'b7' });
+        };
+        if (act === 'bag') spark(w.x + fx * 13, w.lane - 17, '#fff2a8');
+        else if (act === 'press' || act === 'curl') spark(w.x + (this.rand() - 0.5) * 6, w.lane - 30, '#bfe9ff');
+        else if (act === 'sharpen') spark(w.x + fx * 13, w.lane - 14, '#ffe27a');
+        else if (act === 'polish') spark(w.x + fx * 9, w.lane - 16, '#fff6c8', 'plus');
+      }
     }
     // 생산실에서 일하는 느낌: 잎사귀와 물방울
     this.workT -= dt;
@@ -324,7 +375,7 @@ export class Scene {
     for (const w of this.walkers.values()) {
       if (w.post) {
         // 일꾼은 밭 뒤쪽 줄로 올라선다
-        const pl = postLane(w.floor);
+        const pl = w.post.lane ?? postLane(w.floor);
         w.lane += Math.max(-30 * dt, Math.min(30 * dt, pl - w.lane));
         const d = w.post.x - w.x;
         if (Math.abs(d) < 1) {
@@ -953,6 +1004,46 @@ export class Scene {
     ctx.fillRect(140, 100, 9, 3);
     ctx.fillStyle = '#3a3f48';
     ctx.fillRect(141, 104, 7, 2);
+    this.drawSquadCorners(ctx);
+  }
+
+  /** 대기실 바닥의 조별 코너: 방어조 운동 매트·덤벨 거치대와 탐사조 장비 손질 방수포 */
+  private drawSquadCorners(ctx: CanvasRenderingContext2D): void {
+    const R = (x: number, y: number, w: number, h: number, c: string): void => {
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, w, h);
+    };
+    // 운동 매트
+    R(10, 135, 86, 17, '#34405a');
+    R(10, 135, 86, 1, '#4e5d82');
+    R(10, 151, 86, 1, '#232c40');
+    for (let x = 32; x < 96; x += 22) R(x, 136, 1, 15, '#2a3550');
+    // 덤벨 거치대
+    R(94, 143, 1, 9, '#2b2b30');
+    R(106, 143, 1, 9, '#2b2b30');
+    R(94, 146, 13, 1, '#4a4a54');
+    R(94, 150, 13, 1, '#4a4a54');
+    for (let k = 0; k < 3; k++) {
+      R(95 + k * 4, 143, 3, 3, '#6a6a74');
+      R(96 + k * 4, 143, 1, 3, '#9a9aa4');
+      R(95 + k * 4, 147, 3, 3, '#4a4a54');
+      R(96 + k * 4, 147, 1, 3, '#7a7a84');
+    }
+    // 장비 손질 방수포
+    R(109, 135, 47, 17, '#56633a');
+    R(109, 135, 47, 1, '#6e7d4a');
+    R(109, 151, 47, 1, '#3e4a2a');
+    for (let x = 121; x < 156; x += 12) R(x, 136, 1, 15, '#4a5632');
+    // 방수포 위 물건: 응급 상자, 밧줄, 물통, 장화
+    R(113, 138, 6, 5, '#e8e0d0');
+    R(115, 139, 2, 3, '#c0392b');
+    R(114, 140, 4, 1, '#c0392b');
+    R(129, 139, 6, 4, '#c8a868');
+    R(130, 140, 4, 2, '#9a7a48');
+    R(139, 140, 3, 6, '#4a79a8');
+    R(140, 139, 1, 1, '#c8c8d0');
+    R(121, 145, 4, 3, '#3a2a1a');
+    R(127, 146, 4, 2, '#3a2a1a');
   }
 
   private drawEntities(ctx: CanvasRenderingContext2D, m: SceneModel, floor: View): void {
@@ -970,7 +1061,14 @@ export class Scene {
           if (d.look.cat) drawCat(ctx, w.x, w.lane, this.t * 1000, w.dir, w.moving);
           else {
             const working = w.post?.kind === 'work' && !w.moving;
-            const bob = working && Math.floor(this.t * 3 + w.seed) % 2 === 0 ? 1 : 0;
+            const training = w.post?.kind === 'train' && !w.moving;
+            const gearing = w.post?.kind === 'gear' && !w.moving;
+            let bob = working && Math.floor(this.t * 3 + w.seed) % 2 === 0 ? 1 : 0;
+            if (training && w.post?.act === 'press') {
+              const cyc = (this.t * 1.4 + w.seed * 0.37) % 1;
+              bob = (cyc < 0.5 ? cyc * 2 : (1 - cyc) * 2) < 0.25 ? 1 : 0; // 바벨을 내릴 때 살짝 굽힌다
+            }
+            if (gearing && w.post?.act === 'map') bob = Math.floor(this.t * 1.2 + w.seed) % 2;
             drawPerson(ctx, d.look, w.x, w.lane + bob, { frame, moving: w.moving, dir: w.dir });
             const px = Math.round(w.x);
             const fx = w.dir > 0 ? 1 : -1;
@@ -985,6 +1083,10 @@ export class Scene {
                 ctx.fillStyle = '#ff5a4a';
                 ctx.fillRect(px - 1, w.lane - personHeight(d.look) - 5, 3, 3);
               }
+            } else if (training) {
+              tools.push(() => this.trainTool(ctx, w, d.look.skin, px, fx));
+            } else if (gearing) {
+              tools.push(() => this.gearTool(ctx, w, px, fx));
             } else if (working) {
               const sw = Math.floor(this.t * 3 + w.seed) % 2;
               const hx = px + fx * 9;
@@ -1020,6 +1122,31 @@ export class Scene {
               ctx.fillRect(px - 1, w.lane - personHeight(d.look) - 5, 3, 3);
             }
           }
+        },
+      });
+    }
+    if (floor === 'b7') {
+      // 샌드백: 누가 치고 있으면 맞을 때마다 흔들린다
+      let dx = 0;
+      for (const w of this.walkers.values()) {
+        if (w.post?.act !== 'bag' || w.moving) continue;
+        const ph = (this.t * 2.2 + w.seed) % 1;
+        dx = Math.round((ph < 0.5 ? 1 - ph * 2 : 0) * 2);
+      }
+      list.push({
+        y: 149,
+        draw: () => {
+          const bx = BAG_X + dx;
+          ctx.fillStyle = '#2b2b30';
+          ctx.fillRect(BAG_X - 5, 148, 11, 2);
+          ctx.fillStyle = '#7a4a2a';
+          ctx.fillRect(bx - 3, 133, 7, 15);
+          ctx.fillStyle = '#9a6a3a';
+          ctx.fillRect(bx - 3, 133, 7, 1);
+          ctx.fillRect(bx - 3, 133, 1, 15);
+          ctx.fillStyle = '#4a2a14';
+          ctx.fillRect(bx - 3, 138, 7, 1);
+          ctx.fillRect(bx - 3, 143, 7, 1);
         },
       });
     }
@@ -1068,6 +1195,92 @@ export class Scene {
     ctx.fillStyle = 'rgba(0,0,0,0.12)';
     ctx.fillRect(3, STORE_TOP + 6, 3, SHS);
     ctx.fillRect(154, STORE_TOP + 6, 3, SHS);
+  }
+
+  /** 방어조의 운동: 바벨 들기 · 덤벨 컬 · 샌드백 치기 */
+  private trainTool(ctx: CanvasRenderingContext2D, w: Walker, skin: string, px: number, fx: number): void {
+    const R = (x: number, y: number, wd: number, h: number, c: string): void => {
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, wd, h);
+    };
+    const L = w.lane;
+    const tri = (c: number): number => (c < 0.5 ? c * 2 : (1 - c) * 2);
+    const act = w.post?.act;
+    if (act === 'press') {
+      const up = tri((this.t * 1.4 + w.seed * 0.37) % 1);
+      const by = Math.round(L - 20 - up * 12);
+      const armH = Math.max(1, L - 22 - by);
+      R(px - 4, by, 1, armH, skin);
+      R(px + 3, by, 1, armH, skin);
+      R(px - 9, by, 18, 1, '#9a9aa4');
+      R(px - 10, by - 3, 2, 7, '#3a3a44');
+      R(px + 8, by - 3, 2, 7, '#3a3a44');
+      R(px - 10, by - 3, 2, 1, '#6a6a74');
+      R(px + 8, by - 3, 2, 1, '#6a6a74');
+    } else if (act === 'curl') {
+      for (const side of [1, -1]) {
+        const hx = px + side * 7;
+        const up = tri((this.t * 1.6 + w.seed * 0.3 + (side > 0 ? 0 : 0.5)) % 1);
+        const hy = Math.round(L - 11 - up * 9);
+        const top = Math.min(hy, L - 16);
+        R(hx, top, 1, Math.abs(L - 16 - hy) + 1, skin);
+        R(hx - 2, hy, 5, 1, '#8a8a94');
+        R(hx - 3, hy - 1, 1, 3, '#3a3a44');
+        R(hx + 2, hy - 1, 1, 3, '#3a3a44');
+      }
+    } else if (act === 'bag') {
+      const ph = (this.t * 2.2 + w.seed) % 1;
+      const ext = ph < 0.18 ? 5 : ph < 0.4 ? 2 : 0;
+      const fist = px + fx * (7 + ext);
+      const fy = L - 17;
+      R(Math.min(px + fx * 3, fist), fy, Math.abs(fist - px - fx * 3) + 1, 1, skin);
+      R(fist - 1, fy - 1, 3, 3, '#c0392b');
+      R(fist - 1, fy - 1, 3, 1, '#e05a4a');
+    }
+  }
+
+  /** 탐사조의 장비 손질: 칼 갈기 · 랜턴 닦기 · 배낭 챙기기 · 지도 보기 · 손전등 점검 */
+  private gearTool(ctx: CanvasRenderingContext2D, w: Walker, px: number, fx: number): void {
+    const R = (x: number, y: number, wd: number, h: number, c: string): void => {
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, wd, h);
+    };
+    const L = w.lane;
+    const hx = px + fx * 8;
+    const act = w.post?.act;
+    const s = w.seed;
+    if (act === 'sharpen') {
+      R(hx - 3, L - 12, 7, 3, '#8a8a92');
+      R(hx - 3, L - 12, 7, 1, '#a8a8b2');
+      const kx = hx - 3 + Math.round(Math.sin(this.t * 7 + s) * 2) + 2;
+      R(kx, L - 14, 6, 1, '#d8d8e0');
+      R(fx > 0 ? kx - 2 : kx + 6, L - 14, 2, 2, '#6a4a2a');
+    } else if (act === 'polish') {
+      R(hx - 2, L - 19, 5, 7, '#8a7a5a');
+      R(hx - 1, L - 18, 3, 4, '#ffd34d');
+      R(hx - 2, L - 20, 5, 1, '#4a3a2a');
+      R(hx - 1, L - 21, 3, 1, '#4a3a2a');
+      R(hx - 4, L - 17 + (Math.floor(this.t * 5 + s) % 2) * 2, 3, 2, '#cfd8e8');
+    } else if (act === 'pack') {
+      const b = Math.floor(this.t * 2 + s) % 2;
+      R(hx - 3, L - 24 + b, 7, 10, '#6b7f4a');
+      R(hx - 3, L - 24 + b, 7, 2, '#4a5a30');
+      R(hx - 1, L - 20 + b, 3, 3, '#55663a');
+      R(hx, L - 23 + b, 1, 1, '#d8b84a');
+      R(hx - 3, L - 16 + b, 7, 1, '#3a4a28');
+    } else if (act === 'map') {
+      const sw = Math.floor(this.t * 1.2 + s) % 2;
+      R(hx - 4, L - 25 + sw, 9, 7, '#efe6c8');
+      R(hx - 4, L - 25 + sw, 9, 1, '#cdbf94');
+      R(hx - 3, L - 22 + sw, 2, 1, '#c0392b');
+      R(hx - 1, L - 21 + sw, 2, 1, '#c0392b');
+      R(hx + 1, L - 23 + sw, 1, 1, '#c0392b');
+      R(hx + 2, L - 20 + sw, 2, 2, '#2b1d14');
+    } else if (act === 'check') {
+      R(hx - 3, L - 15, 6, 2, '#555a64');
+      R(fx > 0 ? hx + 3 : hx - 4, L - 15, 1, 2, '#ffe27a');
+      if (Math.floor(this.t * 2 + s) % 2 === 0) R(fx > 0 ? hx + 4 : hx - 8, L - 16, 4, 4, 'rgba(255,240,150,0.45)');
+    }
   }
 
   private drawParticles(ctx: CanvasRenderingContext2D, floor: View): void {

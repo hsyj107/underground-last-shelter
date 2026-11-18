@@ -122,7 +122,7 @@ let say = '';
 let bubbleTimer = 0;
 
 /** 받침에 따라 조사를 붙인다 */
-function josa(word: string, kind: 'iga' | 'eunneun' | 'eulreul' | 'euro'): string {
+function josa(word: string, kind: 'iga' | 'eunneun' | 'eulreul' | 'euro' | 'wagwa'): string {
   const code = word.charCodeAt(word.length - 1) - 0xac00;
   const has = code >= 0 && code % 28 !== 0;
   const rieul = code >= 0 && code % 28 === 8; // ㄹ 받침
@@ -131,6 +131,7 @@ function josa(word: string, kind: 'iga' | 'eunneun' | 'eulreul' | 'euro'): strin
     case 'eunneun': return word + (has ? '은' : '는');
     case 'eulreul': return word + (has ? '을' : '를');
     case 'euro': return word + (has && !rieul ? '으로' : '로');
+    case 'wagwa': return word + (has ? '과' : '와');
   }
 }
 const fmt = (n: number): string => Math.floor(n).toLocaleString('en-US');
@@ -1459,6 +1460,24 @@ function showOrQueue(kind: string, html: string): void {
   else queued.push({ kind, html });
 }
 
+/** 조 편성이 만든 정의 변화를 한 줄로 */
+function squadBondText(n: Extract<Notice, { type: 'squad_bond' }>): string {
+  const a = SURV_BY_ID[n.a]?.name ?? '';
+  const b = SURV_BY_ID[n.b]?.name ?? '';
+  const pair = `${josa(a, 'wagwa')} ${b}`;
+  if (n.kind === 'mended') return `🕊 ${pair}의 앙금이 풀렸다`;
+  if (n.kind === 'friend') {
+    if (n.role === 'guard') return `💪 ${pair}, 같이 운동하다 가까워졌다`;
+    if (n.role === 'work') return `🌱 ${pair}, 같이 일하다 가까워졌다`;
+    if (n.role === 'scout') return `🔧 ${pair}, 장비를 같이 손질하다 가까워졌다`;
+    return `🤝 ${pair}, 조는 달라도 서로를 다시 보게 됐다`;
+  }
+  if (n.role === 'guard') return `💢 ${pair}, 훈련하다 힘자랑으로 틀어졌다`;
+  if (n.role === 'work') return `💢 ${pair}, 일 분담 문제로 다퉜다`;
+  if (n.role === 'scout') return `💢 ${pair}, 장비 문제로 다퉜다`;
+  return `💢 ${pair}, 조 사이 불만이 터졌다`;
+}
+
 function handleNotices(notes: Notice[]): void {
   for (const n of notes) {
     if (n.type === 'raid') toast(S.raid?.kind === 'horde' ? '🧟 좀비 떼가 몰려온다!' : '⚔ 약탈자가 문을 부수려 한다!', 'bad');
@@ -1469,6 +1488,7 @@ function handleNotices(notes: Notice[]): void {
     if (n.type === 'sick_death') showOrQueue('sickdead', `<h2>🕯 병을 이기지 못했다</h2><div class="lost">${pt(n.gone.id, 'pt sm', true)}<span><b>${n.gone.name}</b> <small>${n.gone.title}</small><i>${n.gone.last}</i></span></div><button class="btn primary wide" data-act="close">…</button>`);
     if (n.type === 'rescue') toast('📡 구조 신호가 잡혔다', 'warm');
     if (n.type === 'rescue_lost') toast('📡 신호가 끊겼다…', 'bad');
+    if (n.type === 'squad_bond') toast(squadBondText(n), n.kind === 'rival' ? 'bad' : 'good');
     if (n.type === 'guide_done') toast('🧭 첫날 할 일을 모두 마쳤다! 식량·식수 +10, 의약품 +2', 'warm');
   }
   if (notes.length) {
