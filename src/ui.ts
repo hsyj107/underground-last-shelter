@@ -117,7 +117,6 @@ let tab: Tab = 'home';
 let sel: { zone: string | null; members: string[] } = { zone: null, members: [] };
 let shelfCat: Cat | 'all' = 'all';
 let modalKind: string | null = null;
-let viewFloor: 'b7' | 'b8' = 'b7';
 let say = '';
 let bubbleTimer = 0;
 
@@ -166,8 +165,6 @@ export function startApp(root: HTMLElement): void {
         <div id="bubble" class="bubble hide"></div>
         <div id="stage-actions"></div>
         <div id="lift">
-          <button class="fl on" data-act="floor" data-id="b7">B7</button>
-          <button class="fl" data-act="floor" data-id="b8">B8</button>
           <button class="go" data-act="explore-open"><i>🛗</i>탐사</button>
         </div>
       </div>
@@ -211,7 +208,7 @@ export function startApp(root: HTMLElement): void {
       water: S.upg.water,
     }),
     {
-      onSurvivor: (id, lx, ly) => onTapSurvivor(id, lx, ly),
+      onSurvivor: (id, lx, ly, floor) => onTapSurvivor(id, lx, ly, floor),
       onVisitor: () => openVisitor(),
       onBag: () => openBag(),
       onElevator: () => openExplore(),
@@ -318,7 +315,6 @@ function refreshExplore(): void {
 }
 
 function syncLift(): void {
-  document.querySelectorAll<HTMLElement>('#lift .fl').forEach((b) => b.classList.toggle('on', b.dataset.id === viewFloor));
   const go = document.querySelector<HTMLElement>('#lift .go');
   if (go) go.classList.toggle('ready', readyExps() === 0 && S.exps.length === 0 && availableCrew(S, Date.now()).length > 0);
 }
@@ -343,7 +339,7 @@ function renderAll(): void {
 function updateHud(): void {
   const now = Date.now();
   $('#hud-day').textContent = `DAY ${dayNumber(S, now)}`;
-  $('#hud-name').textContent = `${viewFloor === 'b8' ? 'B8' : 'B7'} · ${S.name}`;
+  $('#hud-name').textContent = `B7 · ${S.name}`;
   $('#hud-caps').textContent = fmt(S.caps);
   const lowF = (minutesLeft(S, now, 'food') ?? 9999) < 60 || S.res.food <= 0;
   const lowW = (minutesLeft(S, now, 'water') ?? 9999) < 60 || S.res.water <= 0;
@@ -1060,12 +1056,12 @@ function giftModal(id: string): void {
 
 // ---------- 동작 ----------
 
-function onTapSurvivor(id: string, lx: number, ly: number): void {
+function onTapSurvivor(id: string, lx: number, ly: number, floor: 'b7' | 'b8'): void {
   const now = Date.now();
   const r = tapSurvivor(S, id, now);
   const d = SURV_BY_ID[id];
   const b = $('#bubble');
-  const pos = scene.cssPos(lx, ly);
+  const pos = scene.cssPos(lx, ly, floor);
   b.textContent = `${d.name}: ${r.line}`;
   b.style.left = `${Math.min(Math.max(pos.left, 70), $('#stage').clientWidth - 70)}px`;
   b.style.top = `${Math.max(pos.top - 6, 28)}px`;
@@ -1073,7 +1069,7 @@ function onTapSurvivor(id: string, lx: number, ly: number): void {
   clearTimeout(bubbleTimer);
   bubbleTimer = window.setTimeout(() => b.classList.add('hide'), 2600);
   if (r.gained) {
-    scene.burst(lx, ly, 'heart', 3);
+    scene.burst(lx, ly, 'heart', 3, floor);
     announce(id, r.chapters, r.reward);
   }
 }
@@ -1387,12 +1383,6 @@ function onClick(e: Event): void {
     }
     case 'explore-open':
       openExplore();
-      break;
-    case 'floor':
-      viewFloor = id === 'b8' ? 'b8' : 'b7';
-      scene.setView(viewFloor);
-      syncLift();
-      updateHud();
       break;
     case 'cat':
       shelfCat = (el.dataset.c as Cat | 'all') ?? 'all';
