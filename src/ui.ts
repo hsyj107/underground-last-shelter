@@ -1617,6 +1617,7 @@ function openBreach(): void {
     <p class="story">새 층으로 통하는 문을 여는 순간, 어둠 속에 있던 것들이 한꺼번에 깨어난다.</p>
     <p class="sm">수용 ${capacity(S)}명 → <b>${nx.cap}명</b> · 공사비 ● ${fmt(pv.cost)}</p>
     <p class="sm ${ratio >= 1 ? 'ok' : ratio >= 0.7 ? 'warn' : 'bad'}">🛡 우리 방어력 <b>${pv.defense}</b> / 몰려오는 무리 <b>${pv.power}</b> — 방어조 ${guards}명${ratio >= 1.15 ? ' · 넉넉해요' : ratio >= 0.85 ? ' · 아슬아슬해요' : ' · 많이 모자라요'}</p>
+    <p class="sm ${pv.chance >= 0.9 ? 'ok' : pv.chance >= 0.5 ? 'warn' : 'bad'}">🎲 성공 확률 약 <b>${Math.round(pv.chance * 100)}%</b>${pv.needMore > 0 ? ` · 운이 나빠도 이기려면 방어력 <b>${pv.needMore}</b> 더 필요해요 (방어조를 늘리거나, 힘 센 사람을 방어조로)` : ' · 운이 나빠도 이길 수 있어요'}</p>
     <p class="dim sm">실패하면 공사비의 60%를 날리고, 막던 사람이 다치거나 목숨을 잃을 수 있어요. 방어조를 늘려 보세요.</p>
     <button class="btn primary wide" data-act="breach-go" ${S.caps >= pv.cost ? '' : 'disabled'}>돌파한다</button>
     <button class="btn wide" data-act="close">더 준비한다</button>`,

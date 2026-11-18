@@ -985,6 +985,14 @@ test('상인: 사고 되팔아도 병마개가 남지 않는다(돈복사 방지
   }
 });
 
+test('돌파 성공 확률 표시가 실제 판정과 맞는다', () => {
+  assert.equal(e.breachChance(0, 8), 0);
+  assert.ok(e.breachChance(8 / 0.85, 8) > 1 - 1e-9);
+  assert.ok(e.breachChance(8 / 1.15, 8) < 1e-9);
+  const mid = e.breachChance(8, 8);
+  assert.ok(mid > 0.45 && mid < 0.6, String(mid));
+});
+
 test('구조 신호: 희귀 직업을 구하러 가서 성공하면 합류한다', () => {
   g.setRng(Math.random);
   const s = g.newState('a', 0, plain());

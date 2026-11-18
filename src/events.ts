@@ -331,11 +331,30 @@ export interface BreachPreview {
   defense: number;
   cost: number;
   name: string;
+  /** 지금 방어력으로 성공할 확률 (0~1) */
+  chance: number;
+  /** 운이 가장 나빠도 이기려면 방어력이 얼마나 더 필요한가 (0이면 확실) */
+  needMore: number;
+}
+
+/** 판정은 방어력 x (0.85~1.15 무작위) >= 상대 힘. 그 확률. */
+export function breachChance(defense: number, power: number): number {
+  if (defense <= 0) return 0;
+  return Math.min(1, Math.max(0, 1 - (power / defense - 0.85) / 0.3));
 }
 export function previewBreach(s: State, now: number): BreachPreview | null {
   const nx = nextFloor(s);
   if (!nx) return null;
-  return { power: BREACH_POWER[s.floor + 1] ?? 50, defense: defense(s, now), cost: nx.cost, name: FLOORS[s.floor + 1].name };
+  const power = BREACH_POWER[s.floor + 1] ?? 50;
+  const def = defense(s, now);
+  return {
+    power,
+    defense: def,
+    cost: nx.cost,
+    name: FLOORS[s.floor + 1].name,
+    chance: breachChance(def, power),
+    needMore: Math.max(0, Math.ceil(power / 0.85 - def)),
+  };
 }
 
 export type BreachResult =
