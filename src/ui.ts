@@ -1,4 +1,5 @@
 // 화면(탭, 모달, 알림). 규칙은 state.ts, 장면은 scene.ts.
+import * as cloud from './cloud.ts';
 import {
   CATS,
   CAT_ORDER,
@@ -854,15 +855,39 @@ function openOffline(ms: number, food: number, water: number): void {
   );
 }
 
+function cloudHtml(): string {
+  const a = cloud.account();
+  if (!a) {
+    return `<div class="card"><h3>☁ 계정으로 저장</h3>
+      <p class="dim sm">이메일을 넣으면 로그인 링크를 보내 드려요. 다른 기기에서도 같은 이메일로 링크를 열면 이어서 할 수 있어요. 비밀번호는 없어요.</p>
+      <input id="cloud-email" type="email" inputmode="email" autocomplete="email" placeholder="이메일 주소" class="field" />
+      <button class="btn primary wide" data-act="cloud-send">로그인 링크 보내기</button></div>`;
+  }
+  const t = cloud.lastSyncedAt();
+  return `<div class="card"><h3>☁ 계정으로 저장</h3>
+    <p class="sm">로그인: <b>${a.email}</b></p>
+    <p class="dim sm">마지막 서버 저장: ${t ? new Date(t).toLocaleString('ko-KR') : '아직 없음'} (1분마다 자동)</p>
+    ${a.blocked ? '<p class="bad sm">다른 기기에서 더 새로 저장돼서 이 기기의 자동 저장이 멈췄어요.</p><button class="btn wide" data-act="cloud-pull">서버 저장 불러오기</button><button class="btn danger wide" data-act="cloud-force">이 기기 저장으로 덮어쓰기</button>' : ''}
+    ${a.error ? `<p class="warn sm">${a.error}</p>` : ''}
+    <button class="btn wide" data-act="cloud-now">지금 저장</button>
+    <button class="btn wide" data-act="cloud-out">로그아웃</button></div>`;
+}
+
 function openSettings(): void {
   openModal(
     'settings',
     `<h2>설정</h2>
-    <p class="dim">저장은 이 기기의 브라우저에만 됩니다. 접속하지 않아도 시간은 흘러 식량과 물이 줄고 탐사가 진행돼요.</p>
+    ${cloudHtml()}
+    <p class="dim">접속하지 않아도 시간은 흘러 식량과 물이 줄고 탐사가 진행돼요. 로그인하지 않으면 이 기기의 브라우저에만 저장돼요.</p>
     <p class="dim sm">시험용: 주소 끝에 <b>?speed=30</b> 을 붙이면 시간이 30배 빨라져요.</p>
     <button class="btn danger wide" data-act="reset1">처음부터 다시 하기</button>
     <button class="btn wide" data-act="close">닫기</button>`,
   );
+}
+
+/** 게임 밖(시작 전 처리)에서 온 안내를 띄운다 */
+export function notify(msg: string): void {
+  toast(msg, 'warm');
 }
 
 function openVisitor(): void {
@@ -1074,8 +1099,10 @@ function onClick(e: Event): void {
       );
       break;
     case 'reset2':
-      clearState();
-      location.href = location.pathname;
+      void cloud.deleteRemote().finally(() => {
+        clearState();
+        location.href = location.pathname;
+      });
       break;
     case 'cc-origin':
       cc.origin = id;
@@ -1293,8 +1320,39 @@ function onClick(e: Event): void {
       openHall();
       break;
     case 'new-game':
-      clearState();
-      location.href = location.pathname;
+      void cloud.deleteRemote().finally(() => {
+        clearState();
+        location.href = location.pathname;
+      });
+      break;
+    case 'cloud-send': {
+      const input = document.querySelector<HTMLInputElement>('#cloud-email');
+      void cloud.sendLink(input?.value ?? '').then((r) => {
+        if (r.ok) toast('📧 메일을 보냈어요. 메일의 링크를 열면 로그인돼요. (스팸함도 확인)', 'good');
+        else toast(r.error ?? '보내지 못했어요.', 'bad');
+      });
+      break;
+    }
+    case 'cloud-now':
+      void cloud.push().then((ok) => {
+        toast(ok ? '☁ 저장했어요.' : '저장하지 못했어요. 설정을 다시 열어 확인해 보세요.', ok ? 'good' : 'bad');
+        if (modalKind === 'settings') openSettings();
+      });
+      break;
+    case 'cloud-force':
+      saveState(S);
+      void cloud.push(true).then((ok) => {
+        toast(ok ? '☁ 이 기기 저장으로 덮어썼어요.' : '저장하지 못했어요.', ok ? 'good' : 'bad');
+        if (modalKind === 'settings') openSettings();
+      });
+      break;
+    case 'cloud-pull':
+      void cloud.pullAndReload();
+      break;
+    case 'cloud-out':
+      cloud.signOut();
+      toast('로그아웃했어요. 이 기기 저장은 그대로 남아 있어요.');
+      openSettings();
       break;
     case 'buy':
       if (buyUpgrade(S, el.dataset.key as UpgKey)) {

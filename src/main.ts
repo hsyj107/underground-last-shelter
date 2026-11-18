@@ -1,5 +1,6 @@
 import './style.css';
-import { startApp } from './ui.ts';
+import { startApp, notify } from './ui.ts';
+import * as cloud from './cloud.ts';
 
 /** 휴대폰처럼 개발자 도구를 열기 어려운 환경에서도 오류 원인을 볼 수 있게 화면에 띄운다 */
 function showError(message: string): void {
@@ -17,4 +18,15 @@ function showError(message: string): void {
 window.addEventListener('error', (e) => showError(`[오류] ${e.message} (${e.filename}:${e.lineno})`));
 window.addEventListener('unhandledrejection', (e) => showError(`[오류] ${String(e.reason)}`));
 
-startApp(document.getElementById('app') as HTMLElement);
+void (async () => {
+  const pending: string[] = [];
+  try {
+    // 로그인 복귀 처리와 서버 저장 맞추기는 게임이 시작되기 전에 끝낸다. 실패해도 이 기기 저장으로 시작한다.
+    await cloud.boot((m) => pending.push(m));
+  } catch (e) {
+    showError(`[클라우드] ${String(e)}`);
+  }
+  startApp(document.getElementById('app') as HTMLElement);
+  cloud.startSync();
+  pending.forEach((m) => notify(m));
+})();

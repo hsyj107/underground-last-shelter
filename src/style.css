@@ -300,3 +300,5 @@ p.bad { color: var(--bad); }
 .guide { list-style: none; margin: 4px 0 6px; padding: 0; line-height: 1.7; }
 .guide li.ok { opacity: .55; text-decoration: line-through; }
 .tip h3 small { font-weight: 400; opacity: .7; margin-left: 4px; }
+
+.field { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 8px; padding: 10px; font: inherit; color: var(--text); background: #120e0b; border: 2px solid #000; }
