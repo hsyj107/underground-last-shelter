@@ -248,13 +248,20 @@ export function buyOffer(s: State, offerId: string, now: number): boolean {
   return true;
 }
 
+/** 상인이 식량·물을 사 주는 값. 그 상인이 파는 값(개당)의 60%라서 사고 되파는 것으론 절대 남지 않는다. */
+export function sellQuote(s: State, k: 'food' | 'water', n = 10): number {
+  const o = s.merchant?.offers.find((x) => x.res === k);
+  if (!o) return 0;
+  return Math.max(1, Math.floor(((n * o.price) / o.amount) * 0.6));
+}
+
 /** 남는 식량·물을 팔아 병마개로 바꾼다 (상인이 있을 때만) */
 export function sellRes(s: State, k: 'food' | 'water', now: number, n = 10): number {
   const m = s.merchant;
   if (!m || s.over || m.until <= now) return 0;
   if (s.res[k] < n + 10) return 0;
+  const price = sellQuote(s, k, n);
   s.res[k] -= n;
-  const price = Math.max(1, Math.round(n * (k === 'food' ? 0.5 : 0.4) * (2 - marketMult(s))));
   s.caps += price;
   s.guide.trade = true;
   return price;

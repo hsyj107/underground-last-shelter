@@ -971,6 +971,20 @@ test('상인: 병마개로 물자를 사고, 남는 식량을 팔 수 있다', (
   assert.equal(s.merchant, null);
 });
 
+test('상인: 사고 되팔아도 병마개가 남지 않는다(돈복사 방지)', () => {
+  for (let i = 0; i < 40; i++) {
+    const s = g.newState('t', 1000);
+    s.nextMerchant = 0;
+    e.tickEvents(s, 1000);
+    for (const k of ['food', 'water'] as const) {
+      const o = s.merchant!.offers.find((x) => x.res === k)!;
+      // o.amount만큼 사서 같은 양을 되판 값이 산 값보다 클 수 없다
+      const back = e.sellQuote(s, k, o.amount);
+      assert.ok(back <= o.price, `${k}: 되판 값 ${back} > 산 값 ${o.price}`);
+    }
+  }
+});
+
 test('구조 신호: 희귀 직업을 구하러 가서 성공하면 합류한다', () => {
   g.setRng(Math.random);
   const s = g.newState('a', 0, plain());

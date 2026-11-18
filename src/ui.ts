@@ -98,6 +98,7 @@ import {
   talkChance,
   buyOffer,
   sellRes,
+  sellQuote,
   treat,
   treatCost,
   startRescue,
@@ -1581,7 +1582,7 @@ function openMerchant(): void {
     <p class="story">짐을 가득 진 사내가 문틈으로 물건을 내민다. "오래 못 있어요. 필요한 것만 골라요."</p>
     <p class="dim sm">${timeText(m.until - now)} 뒤에 떠나요 · 시세 ${mm < 1 ? `${Math.round((1 - mm) * 100)}% 할인` : '정가'}${S.rep.market > 0 ? ' (단골이라 값을 깎아 줘요)' : ''}</p>
     ${rows}
-    <div class="row2"><button class="btn" data-act="sell-res" data-id="food" ${S.res.food >= 20 ? '' : 'disabled'}>🍞 10 팔기</button><button class="btn" data-act="sell-res" data-id="water" ${S.res.water >= 20 ? '' : 'disabled'}>💧 10 팔기</button></div>
+    <div class="row2"><button class="btn" data-act="sell-res" data-id="food" ${S.res.food >= 20 ? '' : 'disabled'}>🍞 10 팔기 (● +${sellQuote(S, 'food')})</button><button class="btn" data-act="sell-res" data-id="water" ${S.res.water >= 20 ? '' : 'disabled'}>💧 10 팔기 (● +${sellQuote(S, 'water')})</button></div>
     <button class="btn wide" data-act="close">닫기</button>`,
   );
 }
