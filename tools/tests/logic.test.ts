@@ -865,6 +865,112 @@ test('조 편성 유대: 같은 조는 친해지거나 다투고, 사이 나쁜 
   assert.equal(Object.keys(s.rel).length, n0);
 });
 
+test('조 유대: 앙숙이 생기는 경로와 화해', () => {
+  const s = g.newState('a', 0, plain());
+  const a = join(s, 'soldier');
+  const b = join(s, 'police');
+  assert.ok(g.setRole(s, a, 'guard', 0));
+  assert.ok(g.setRole(s, b, 'guard', 0));
+  // 첫 굴림(짝 선택)은 0, 둘째 굴림만 친구 확률을 넘기고 앙숙 확률 안에 든다
+  const cha = Math.max(s.people[a].stats.cha, s.people[b].stats.cha);
+  const pFriend = 0.26 + 0.02 * cha;
+  g.setRng(seq([0.0, pFriend + 0.01]));
+  const out = e.rollSquadBonds(s, 0);
+  assert.ok(out.some((x) => x.kind === 'rival' && x.role === 'guard'), '앙숙이 되어야 함');
+  assert.equal(g.relOf(s, a, b), 'rival');
+  // 앙숙은 화해할 수 있다
+  g.setRng(seq([0.0]));
+  const mend = e.rollSquadBonds(s, 0);
+  assert.ok(mend.some((x) => x.kind === 'mended'));
+  assert.equal(g.relOf(s, a, b), null);
+});
+
+test('조 유대: 생산조 짝의 가감은 상한이 있고 조 사이 앙숙은 분위기를 깎는다', () => {
+  g.setRng(seq([0.5]));
+  const s = g.newState('a', 0, plain());
+  const ws = ['farmer', 'farmer', 'farmer', 'farmer', 'farmer', 'farmer'].map(() => join(s, 'farmer'));
+  for (const id of ws) assert.ok(g.setRole(s, id, 'work', 0));
+  const base = g.workBoost(s);
+  for (let i = 0; i < ws.length; i++) for (let j = i + 1; j < ws.length; j++) s.rel[g.relKey(ws[i], ws[j])] = 'friend';
+  // 15쌍이 모두 친구여도 +0.04 x 15 가 아니라 상한(+0.2)까지만 오른다
+  assert.ok(Math.abs(g.workBoost(s) - base - g.BOND_CAP.work) < 0.001);
+  for (let i = 0; i < ws.length; i++) for (let j = i + 1; j < ws.length; j++) s.rel[g.relKey(ws[i], ws[j])] = 'rival';
+  assert.ok(Math.abs(base - g.workBoost(s) - g.BOND_CAP.work) < 0.001, '앙숙 15쌍이어도 -0.2 까지만');
+  // 조 사이 앙숙: 방어조 한 명과 생산조 한 명이 앙숙이면 생산이 2% 깎인다
+  const t = g.newState('b', 0, plain());
+  const x = join(t, 'soldier');
+  const y = join(t, 'farmer');
+  assert.ok(g.setRole(t, x, 'guard', 0));
+  assert.ok(g.setRole(t, y, 'work', 0));
+  const w0 = g.workBoost(t);
+  t.rel[g.relKey(x, y)] = 'rival';
+  assert.ok(Math.abs(w0 - g.workBoost(t) - 0.02) < 0.001);
+  assert.equal(g.crossSquad(t).rivals, 1);
+  // 생산조가 없어도 앙숙이 있으면 생산 배율이 1 미만이 될 수 있다
+  const u = g.newState('c', 0, plain());
+  const p = join(u, 'soldier');
+  const q = join(u, 'police');
+  assert.ok(g.setRole(u, p, 'guard', 0));
+  u.rel[g.relKey(p, q)] = 'rival'; // q 는 기본 탐사조
+  assert.ok(g.workBoost(u) < 0);
+  assert.ok(g.workBoost(u) >= -0.1);
+});
+
+test('조 유대: 방어조 짝의 가감은 상한이 있다', () => {
+  g.setRng(seq([0.5]));
+  const s = g.newState('a', 0, plain());
+  const gs = Array.from({ length: 6 }, () => join(s, 'soldier'));
+  for (const id of gs) assert.ok(g.setRole(s, id, 'guard', 0));
+  const none = g.defense(s, 0);
+  for (let i = 0; i < gs.length; i++) for (let j = i + 1; j < gs.length; j++) s.rel[g.relKey(gs[i], gs[j])] = 'friend';
+  assert.ok(Math.abs(g.defense(s, 0) - none - g.BOND_CAP.guard) < 0.11, '친구 15쌍이어도 상한까지만');
+  for (let i = 0; i < gs.length; i++) for (let j = i + 1; j < gs.length; j++) s.rel[g.relKey(gs[i], gs[j])] = 'rival';
+  assert.ok(Math.abs(none - g.defense(s, 0) - 3) < 0.11, '앙숙 15쌍이어도 하한(-3)까지만');
+});
+
+test('조 유대: 다른 조 친구는 식을 수 있고 같은 조 친구는 그대로다', () => {
+  const s = g.newState('a', 0, plain());
+  const a = join(s, 'soldier');
+  const b = join(s, 'police');
+  const c = join(s, 'farmer');
+  assert.ok(g.setRole(s, a, 'guard', 0));
+  assert.ok(g.setRole(s, b, 'guard', 0));
+  assert.ok(g.setRole(s, c, 'work', 0));
+  s.rel[g.relKey(a, b)] = 'friend';
+  s.rel[g.relKey(a, c)] = 'friend';
+  // 난수 0: 같은 조 짝은 이미 친구라 그대로, 다른 조 짝(a-c, b-c 중 하나)은 식는다
+  g.setRng(seq([0.0]));
+  const out = e.rollSquadBonds(s, 0);
+  assert.ok(out.some((x) => x.kind === 'faded' && x.role === 'mix'));
+  assert.equal(g.relOf(s, a, b), 'friend');
+  assert.ok(!out.some((x) => x.role === 'guard'), '같은 조 친구는 건드리지 않는다');
+  // 난수 0.99: 아무 일도 없다
+  s.rel[g.relKey(a, c)] = 'friend';
+  g.setRng(seq([0.99]));
+  assert.deepEqual(e.rollSquadBonds(s, 0), []);
+  assert.equal(g.relOf(s, a, c), 'friend');
+});
+
+test('조 유대: 오래 쉬어도 한 번에 네 번까지만 따라잡는다', () => {
+  const s = g.newState('a', 0, plain());
+  join(s, 'soldier');
+  join(s, 'police');
+  const HOUR = 3600000;
+  const start = s.nextBond;
+  // 다른 사건이 난수를 쓰지 않도록 멀리 미뤄 둔다
+  s.nextRaid = s.nextMerchant = s.nextSick = s.nextRescue = 1e15;
+  let calls = 0;
+  g.setRng(() => {
+    calls++;
+    return 0.99;
+  });
+  e.tickEvents(s, start + 10 * HOUR);
+  // 같은 조 한 쌍뿐이라 한 번 굴릴 때 난수 2번(짝 고르기·판정). 10시간 쉬었어도 4번만 굴린다.
+  assert.equal(calls, 8);
+  // 다음 굴림은 지금부터 한 시간 뒤로 맞춘다
+  assert.equal(s.nextBond, start + 11 * HOUR);
+});
+
 test('주인공(관리자)은 어떤 경우에도 죽지 않는다', () => {
   const s = g.newState('a', 0);
   s.found = Object.fromEntries(ITEMS.slice(0, 40).map((i) => [i.id, 1]));

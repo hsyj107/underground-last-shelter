@@ -407,7 +407,7 @@ export type Notice =
   | { type: 'sick_death'; gone: Gone }
   | { type: 'rescue' }
   | { type: 'rescue_lost' }
-  | { type: 'squad_bond'; a: string; b: string; kind: 'friend' | 'rival' | 'mended'; role: Role | 'mix' }
+  | { type: 'squad_bond'; a: string; b: string; kind: 'friend' | 'rival' | 'mended' | 'faded'; role: Role | 'mix' }
   | { type: 'guide_done' };
 
 const later = (hours: number): number => ms((hours + 0) * HOUR);
@@ -421,7 +421,7 @@ const BOND_CATCHUP = 4;
 export interface SquadBond {
   a: string;
   b: string;
-  kind: 'friend' | 'rival' | 'mended';
+  kind: 'friend' | 'rival' | 'mended' | 'faded';
   role: Role | 'mix';
 }
 
@@ -440,10 +440,17 @@ function bondStress(s: State): boolean {
   return s.shortMs > 0 || s.ration !== 'normal' || !!s.raid;
 }
 
-/** 한 쌍을 골라 사이를 굴린다. 이미 친구인 쌍은 그대로 둔다. */
+/** 한 쌍을 골라 사이를 굴린다. 같은 조 친구는 그대로, 다른 조 친구는 식을 수 있다. */
 function rollPair(s: State, a: string, b: string, role: Role | 'mix'): SquadBond | null {
   const cur = relOf(s, a, b);
-  if (cur === 'friend') return null;
+  if (cur === 'friend') {
+    // 같은 조가 아니면 만날 일이 줄어 정이 식을 수 있다 (같은 조 친구는 그대로)
+    if (role === 'mix' && rand() < 0.05 + (bondStress(s) ? 0.04 : 0)) {
+      delete s.rel[relKey(a, b)];
+      return { a, b, kind: 'faded', role };
+    }
+    return null;
+  }
   const pa = s.people[a];
   const pb = s.people[b];
   const cha = Math.max(pa?.stats.cha ?? 3, pb?.stats.cha ?? 3);

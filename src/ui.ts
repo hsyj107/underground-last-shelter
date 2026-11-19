@@ -473,8 +473,8 @@ function rolesHtml(now: number): string {
   const addW = fl.prod.water - fl.prod.water / wk;
   const sick = Object.keys(S.sick).length;
   return `<section class="card"><h3>🛡 벙커 살림</h3>
-    <p class="sm">🎒 탐사조 <b>${cnt('scout') + 1}</b> · 🌱 생산조 <b>${cnt('work')}</b> ${wb ? `<span class="ok">(식량·식수 +${wb}%)</span>` : ''}</p>
-    ${wb ? `<p class="ok sm">🌱 생산조가 밭과 정수 통을 돌봐요 → 🍞 +${fmt2(addF)}/분 · 💧 +${fmt2(addW)}/분</p>` : '<p class="dim sm">🌱 생산조를 정하면 밭과 정수 통이 생기고 식량·식수가 늘어요.</p>'}
+    <p class="sm">🎒 탐사조 <b>${cnt('scout') + 1}</b> · 🌱 생산조 <b>${cnt('work')}</b> ${wb ? `<span class="${wb > 0 ? 'ok' : 'warn'}">(식량·식수 ${wb > 0 ? '+' : ''}${wb}%)</span>` : ''}</p>
+    ${wb > 0 ? `<p class="ok sm">🌱 생산조가 밭과 정수 통을 돌봐요 → 🍞 +${fmt2(addF)}/분 · 💧 +${fmt2(addW)}/분</p>` : wb < 0 ? '<p class="warn sm">🌫 조 사이 앙숙 때문에 분위기가 가라앉아 식량·식수가 줄었어요.</p>' : '<p class="dim sm">🌱 생산조를 정하면 밭과 정수 통이 생기고 식량·식수가 늘어요.</p>'}
     <p class="sm"> · 🛡 방어조 <b>${cnt('guard')}</b></p>
     <p class="sm">문을 지키는 힘 <b>${defense(S, now)}</b> ${cnt('guard') ? '' : '<em class="warn">— 방어조가 없어요. 습격과 층 돌파에는 방어조가 필요해요.</em>'}</p>
     ${sick ? `<p class="bad sm">🤒 앓는 사람 ${sick}명 — 생존자 탭에서 치료하세요.</p>` : ''}
@@ -1466,6 +1466,7 @@ function squadBondText(n: Extract<Notice, { type: 'squad_bond' }>): string {
   const b = SURV_BY_ID[n.b]?.name ?? '';
   const pair = `${josa(a, 'wagwa')} ${b}`;
   if (n.kind === 'mended') return `🕊 ${pair}의 앙금이 풀렸다`;
+  if (n.kind === 'faded') return `🍂 ${pair}, 조가 달라 만날 일이 줄어 서먹해졌다`;
   if (n.kind === 'friend') {
     if (n.role === 'guard') return `💪 ${pair}, 같이 운동하다 가까워졌다`;
     if (n.role === 'work') return `🌱 ${pair}, 같이 일하다 가까워졌다`;
@@ -1488,7 +1489,7 @@ function handleNotices(notes: Notice[]): void {
     if (n.type === 'sick_death') showOrQueue('sickdead', `<h2>🕯 병을 이기지 못했다</h2><div class="lost">${pt(n.gone.id, 'pt sm', true)}<span><b>${n.gone.name}</b> <small>${n.gone.title}</small><i>${n.gone.last}</i></span></div><button class="btn primary wide" data-act="close">…</button>`);
     if (n.type === 'rescue') toast('📡 구조 신호가 잡혔다', 'warm');
     if (n.type === 'rescue_lost') toast('📡 신호가 끊겼다…', 'bad');
-    if (n.type === 'squad_bond') toast(squadBondText(n), n.kind === 'rival' ? 'bad' : 'good');
+    if (n.type === 'squad_bond') toast(squadBondText(n), n.kind === 'rival' || n.kind === 'faded' ? 'bad' : 'good');
     if (n.type === 'guide_done') toast('🧭 첫날 할 일을 모두 마쳤다! 식량·식수 +10, 의약품 +2', 'warm');
   }
   if (notes.length) {

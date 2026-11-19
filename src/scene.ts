@@ -40,20 +40,20 @@ function postLane(floor: View): number {
 }
 /** 대기실(B7) 방어조 운동 코너: 매트 위에서 각자 다른 운동을 한다 */
 const TRAIN_SPOTS: { x: number; lane: number; act: 'press' | 'curl' | 'bag'; face: 1 | -1 }[] = [
-  { x: 26, lane: 141, act: 'press', face: 1 },
-  { x: 72, lane: 146, act: 'bag', face: 1 },
-  { x: 42, lane: 147, act: 'curl', face: -1 },
-  { x: 56, lane: 141, act: 'press', face: 1 },
-  { x: 18, lane: 148, act: 'curl', face: -1 },
+  { x: 16, lane: 141, act: 'press', face: 1 },
+  { x: 32, lane: 148, act: 'curl', face: -1 },
+  { x: 48, lane: 141, act: 'press', face: 1 },
+  { x: 64, lane: 148, act: 'curl', face: -1 },
+  { x: 74, lane: 143, act: 'bag', face: 1 },
 ];
 const BAG_X = 87;
 /** 대기실 탐사조 장비 손질 코너: 방수포 둘레에 둘러앉아 각자 장비를 만진다 */
 const GEAR_SPOTS: { x: number; lane: number; act: 'sharpen' | 'polish' | 'pack' | 'map' | 'check'; face: 1 | -1 }[] = [
-  { x: 114, lane: 142, act: 'sharpen', face: 1 },
-  { x: 150, lane: 148, act: 'polish', face: -1 },
-  { x: 126, lane: 148, act: 'pack', face: 1 },
-  { x: 142, lane: 142, act: 'map', face: -1 },
-  { x: 132, lane: 137, act: 'check', face: 1 },
+  { x: 113, lane: 142, act: 'sharpen', face: 1 },
+  { x: 123, lane: 149, act: 'pack', face: 1 },
+  { x: 133, lane: 141, act: 'check', face: 1 },
+  { x: 143, lane: 149, act: 'map', face: -1 },
+  { x: 151, lane: 142, act: 'polish', face: -1 },
 ];
 
 export interface SceneModel {
@@ -329,11 +329,11 @@ export class Scene {
       if (gi >= 0) w.post = { x: 30 + gi * 15, face: -1, kind: 'guard' };
       else if (ti >= 0) {
         const sp = TRAIN_SPOTS[ti % TRAIN_SPOTS.length];
-        w.post = { x: sp.x + Math.floor(ti / TRAIN_SPOTS.length) * 6, face: sp.face, kind: 'train', lane: sp.lane, act: sp.act };
+        w.post = { x: sp.x + Math.floor(ti / TRAIN_SPOTS.length) * 8, face: sp.face, kind: 'train', lane: sp.lane, act: sp.act };
       } else if (wi >= 0) w.post = { x: WORK_POSTS[wi % 4], face: wi % 2 ? 1 : -1, kind: 'work' };
       else if (si >= 0) {
         const sp = GEAR_SPOTS[si % GEAR_SPOTS.length];
-        w.post = { x: sp.x + Math.floor(si / GEAR_SPOTS.length) * 4, face: sp.face, kind: 'gear', lane: sp.lane, act: sp.act };
+        w.post = { x: sp.x - Math.floor(si / GEAR_SPOTS.length) * 4, face: sp.face, kind: 'gear', lane: sp.lane, act: sp.act };
       } else w.post = null;
     }
     // 운동 코너와 장비 코너의 땀방울·불꽃

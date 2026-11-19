@@ -394,7 +394,32 @@ export function setRole(s: State, id: string, role: Role, now: number): boolean 
 }
 export const hasTrait = (s: State, id: string): boolean => s.player?.trait === id;
 
-/** 생산조가 늘려 주는 생산 배율 (+) */
+/** 같은 조 짝이 주고받는 가감의 상한: 인원이 늘어도 정이 무한정 쌓이지는 않는다 */
+export const BOND_CAP = { work: 0.2, guard: 6 };
+
+/** 조가 다른 두 사람 사이의 정 (멀쩡한 사람끼리만, 고양이 제외) */
+export function crossSquad(s: State): { friends: number; rivals: number } {
+  const ids = s.crew.filter((id) => !isSick(s, id) && !SURV_BY_ID[id]?.look.cat);
+  let friends = 0;
+  let rivals = 0;
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      if (roleOf(s, ids[i]) === roleOf(s, ids[j])) continue;
+      const r = relOf(s, ids[i], ids[j]);
+      if (r === 'friend') friends++;
+      else if (r === 'rival') rivals++;
+    }
+  }
+  return { friends, rivals };
+}
+
+/** 조 사이 정이 벙커 분위기(식량·식수 생산)에 주는 배율 (+/-). 앙숙이 많으면 일손이 안 잡힌다. */
+export function moodBoost(s: State): number {
+  const { friends, rivals } = crossSquad(s);
+  return Math.min(0.05, Math.max(-0.1, friends * 0.01 - rivals * 0.02));
+}
+
+/** 생산조가 늘려 주는 생산 배율 (+). 조 사이 앙숙이 많으면 마이너스가 될 수도 있다. */
 export function workBoost(s: State): number {
   let v = 0;
   const workers: string[] = [];
@@ -404,15 +429,18 @@ export function workBoost(s: State): number {
     if (d) v += 0.1 + 0.01 * (d.stats.str + d.stats.agi);
     workers.push(id);
   }
-  // 손발이 맞는 짝은 일이 빠르고, 사이 나쁜 짝은 느려진다
+  // 손발이 맞는 짝은 일이 빠르고, 사이 나쁜 짝은 느려진다 (상한 있음)
+  let pair = 0;
   for (let i = 0; i < workers.length; i++) {
     for (let j = i + 1; j < workers.length; j++) {
       const r = relOf(s, workers[i], workers[j]);
-      if (r === 'friend') v += 0.04;
-      else if (r === 'rival') v -= 0.04;
+      if (r === 'friend') pair += 0.04;
+      else if (r === 'rival') pair -= 0.04;
     }
   }
-  return Math.max(0, v);
+  v += Math.min(BOND_CAP.work, Math.max(-BOND_CAP.work, pair));
+  v = Math.max(0, v) + moodBoost(s);
+  return Math.round(v * 1000) / 1000;
 }
 /** 문을 지키는 힘. 방어조가 중심이고, 관리자도 벙커에 있으면 힘을 보탠다. */
 export function defense(s: State, now: number): number {
@@ -425,13 +453,15 @@ export function defense(s: State, now: number): number {
     guards.push(id);
     v += (d.stats.str + d.stats.agi * 0.5) * (d.know.includes('security') ? 1.3 : 1);
   }
+  let pair = 0;
   for (let i = 0; i < guards.length; i++) {
     for (let j = i + 1; j < guards.length; j++) {
       const r = relOf(s, guards[i], guards[j]);
-      if (r === 'friend') v += 1.5;
-      else if (r === 'rival') v -= 1; // 사이 나쁜 두 사람은 호흡이 안 맞는다
+      if (r === 'friend') pair += 1.5;
+      else if (r === 'rival') pair -= 1; // 사이 나쁜 두 사람은 호흡이 안 맞는다
     }
   }
+  v += Math.min(BOND_CAP.guard, Math.max(-3, pair));
   v = Math.max(0, v);
   if (!awaySet(s, now).has('me')) v += SURV_BY_ID.me.stats.str;
   return Math.round(v * (hasTrait(s, 'veteran') ? 1.2 : 1) * 10) / 10;
